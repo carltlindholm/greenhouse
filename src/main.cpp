@@ -6,6 +6,9 @@
 
 #define PUMP_CONTROL 14
 #define TANK_PRESSURE 33
+#define LED_RED 16
+#define LED_GREEN 17
+#define LED_BLUE 18
 
 void setupWifi() {
   static const char ssid[] = SSID;
@@ -14,6 +17,8 @@ void setupWifi() {
   Serial.print("Connecting to ");
   Serial.println(ssid);
   WiFi.begin(ssid, password);
+  Serial.print("MAC address ");
+  Serial.println(WiFi.macAddress());
   while (WiFi.status() != WL_CONNECTED) {
     delay(200);
     Serial.print(".");
@@ -46,6 +51,9 @@ PubSubClient * getMqttClient() {
 
 void setup() {
   pinMode(PUMP_CONTROL, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
 
   Serial.begin(115200);
   setupWifi();
@@ -65,7 +73,10 @@ void loop() {
       } 
     })", counter++, tankPressure);
   mqtt->publish("losant/" MQTT_DEV_ID "/state", message);
-  //digitalWrite(PUMP_CONTROL, counter%2); 
+  digitalWrite(PUMP_CONTROL, counter < 4300 && counter%4==1); 
   Serial.printf("State: pump %d pressure %d\n", counter%2, tankPressure);
+  digitalWrite(LED_RED, counter%3 == 0);
+  digitalWrite(LED_GREEN, counter%3 == 1);
+  digitalWrite(LED_BLUE, counter%3 == 2);
   delay(2000);
 }
