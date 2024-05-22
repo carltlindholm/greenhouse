@@ -2,6 +2,7 @@
 #include <ESP32Time.h>     // fbiego/ESP32Time@^2.0.6
 #include <PubSubClient.h>  // knolleary/PubSubClient@^2.8
 #include <WiFi.h>
+#include <time.h>
 
 #include "/home/ctl/untracked/mqtt-cred.h"
 #include "/home/ctl/untracked/wifi-cred.h"
@@ -171,14 +172,27 @@ void setup() {
   Serial.begin(115200);
 }
 
-int64_t UpdateLeds() {
-  static int counter = 0;
+int64_t UpdateLeds(const StateFlags &state_flags) {
+  static bool is_blink = false;
+  bool blink = false;
+  int led = -1;
+  if (!state_flags.wifi_ok) {
+    led = 0;
+    blink = true;
+  } else if (!state_flags.ntp_ok || !state_flags.mqtt_ok) {
+    led = 0;
+  } else {
+    led = 1;
+  }
 
-  digitalWrite(LED_RED, counter % 3 == 0);
-  digitalWrite(LED_GREEN, counter % 3 == 1);
-  digitalWrite(LED_BLUE, counter % 3 == 2);
+  if (blink && !is_blink) {
+    led = -1;
+  }
+  digitalWrite(LED_RED, led == 0);
+  digitalWrite(LED_GREEN, led == 1);
+  digitalWrite(LED_BLUE, led == 2);
 
-  ++counter;
+  is_blink = !is_blink;
   return 250L;
 }
 
@@ -188,7 +202,7 @@ int64_t ReadTankPressure(MqttPacket &packet) {
   Serial.printf("READ pressure %ld @ %lld\n", packet.tank_pressure,
                 packet.version);
 
-  return 2000;
+  return 5000;
 }
 
 int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
@@ -233,12 +247,18 @@ int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
 }
 
 int64_t UpdateSerial(const SysTime &sys_time, ESP32Time *rtc) {
-  Serial.print(rtc->getTime("SERIAL: RTC=%Y-%m-%d %H:%M:%S"));
+  // Serial.print(rtc->getTime("SERIAL: RTC=%Y-%m-%d %H:%M:%S"));
   Serial.printf(".%03d\n", rtc->getMillis());
 
   Serial.printf("SERIAL: SysTime{best=%lld,ntp=%lld,rtc@ntp=%lld}\n",
                 sys_time.best_time, sys_time.ntp_time,
                 sys_time.rtc_at_ntp_time);
+
+  time_t best_epoch = sys_time.best_time / 1000000LL;
+  tm *dt = gmtime(&best_epoch);
+  Serial.printf("SERIAL: BestTime %04ld-%02ld-%02ld %02ld:%02ld:%02ld.%06lld\n",
+                dt->tm_year + 1900L, dt->tm_mon + 1L, dt->tm_mday, dt->tm_hour,
+                dt->tm_min, dt->tm_sec, sys_time.best_time % 1000000LL);
 
   return 5000L;
 }
@@ -270,7 +290,7 @@ void loop() {
     next_epoch_ms = std::min(next_ms, next_epoch_ms);
   };
 
-  dispatch(next_calls_ms.leds, UpdateLeds);
+  dispatch(next_calls_ms.leds, std::bind(UpdateLeds, std::cref(state_flags)));
   dispatch(next_calls_ms.wifi,
            std::bind(ConnectWifi, std::ref(state_flags.wifi_ok)));
   dispatch(next_calls_ms.ntp,
