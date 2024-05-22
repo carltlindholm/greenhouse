@@ -59,7 +59,19 @@ int64_t ConnectWifi(bool &wifi_ok) {
   return 3000;  // Retry time
 }
 
-int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok) {
+// All times in usec since Epoch.
+struct SysTime {
+  int64_t best_time = 0;  // Our best estimate
+  int64_t ntp_time = 0;
+  int64_t rtc_at_ntp_time = 0;
+};
+
+int64_t RtcMicros(ESP32Time *rtc) {
+  return rtc->getEpoch() * 1000000LL + rtc->getMicros();
+}
+
+int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok,
+                   SysTime &sys_time, ESP32Time *rtc) {
   static WiFiUDP wifiUdp;
   static NTP ntp(wifiUdp);
   if (state_flags.wifi_ok && !ntp_ok) {
@@ -74,6 +86,8 @@ int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok) {
     return 1000;
   } else {
     ntp.update();
+    sys_time.ntp_time = ntp.epoch() * 1000000LL;
+    sys_time.rtc_at_ntp_time = RtcMicros(rtc);
     Serial.print("NTP: ");
     Serial.println(ntp.formattedTime("%A %T"));
     return 20000;
@@ -177,24 +191,72 @@ int64_t ReadTankPressure(MqttPacket &packet) {
   return 2000;
 }
 
-int64_t UpdateSerial(ESP32Time *rtc) {
-  Serial.print(rtc->getTime("%Y-%m-%d %H:%M:%S"));
+int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
+                   ESP32Time *rtc) {
+  constexpr int64_t kMaxAdjustRateUsPerS = 100000LL;  // 10 % = 100000
+  static int initial_loops = 4;
+  static int64_t initial_rtc_offset = 0;
+  static int64_t rtc_offset = 0;
+  static int64_t previous_offset;
+  static int64_t previous_offset_calc_time_rtc;
+
+  int64_t rtc_time = RtcMicros(rtc);
+  sys_time.best_time = rtc_time + rtc_offset;
+
+  if (!state_flags.ntp_ok) {
+    return 1000;  // No ntp, no can adjust.
+  }
+
+  // Update rtc offset using NTP
+  int64_t new_offset = sys_time.ntp_time - sys_time.rtc_at_ntp_time;
+  const int64_t rtc_now = RtcMicros(rtc);
+  if (initial_rtc_offset == 0LL || initial_loops-- > 0) {
+    rtc_offset = previous_offset = initial_rtc_offset = new_offset;
+    previous_offset_calc_time_rtc = rtc_now;
+    Serial.printf("TIME: Initial offset is %.6f (%lld)\n",
+                  initial_rtc_offset / 1e6L, initial_rtc_offset);
+  } else {
+    // int64 (1e18) has enough range here for 1e3s * 1e6 us/s * 1e6 adjust
+    int64_t max_adjust =
+        ((rtc_now - previous_offset_calc_time_rtc) * kMaxAdjustRateUsPerS) /
+        1000000LL;
+    new_offset = std::min(std::max(new_offset, rtc_offset - max_adjust),
+                          rtc_offset + max_adjust);
+    previous_offset = rtc_offset;
+    previous_offset_calc_time_rtc = rtc_now;
+    rtc_offset = new_offset;
+    Serial.printf("TIME: Adjusted offset initial+ %.6f (%lld)\n",
+                  (rtc_offset - initial_rtc_offset) / 1e6L, rtc_offset);
+  }
+
+  return 10000;  // ZZZ more in final.
+}
+
+int64_t UpdateSerial(const SysTime &sys_time, ESP32Time *rtc) {
+  Serial.print(rtc->getTime("SERIAL: RTC=%Y-%m-%d %H:%M:%S"));
   Serial.printf(".%03d\n", rtc->getMillis());
-  return 1000L;
+
+  Serial.printf("SERIAL: SysTime{best=%lld,ntp=%lld,rtc@ntp=%lld}\n",
+                sys_time.best_time, sys_time.ntp_time,
+                sys_time.rtc_at_ntp_time);
+
+  return 5000L;
 }
 
 void loop() {
   static StateFlags state_flags;
+  static SysTime sys_time;
   static struct {
     int64_t wifi = 0;
     int64_t leds = 0;
     int64_t ntp = 0;
+    int64_t timekeeper = 0;
     int64_t serial = 0;
     int64_t mqtt = 0;
     int64_t read_pressure = 0;
   } next_calls_ms;
 
-  static ESP32Time rtc(2 * 3600);  // UTC+2
+  static ESP32Time rtc;
   static MqttPacket mqtt_packet;
 
   int64_t epoch_ms = rtc.getEpoch() * 1000L + rtc.getMillis();
@@ -211,14 +273,19 @@ void loop() {
   dispatch(next_calls_ms.leds, UpdateLeds);
   dispatch(next_calls_ms.wifi,
            std::bind(ConnectWifi, std::ref(state_flags.wifi_ok)));
-  dispatch(next_calls_ms.ntp, std::bind(ConnectNtp, std::cref(state_flags),
-                                        std::ref(state_flags.ntp_ok)));
+  dispatch(next_calls_ms.ntp,
+           std::bind(ConnectNtp, std::cref(state_flags),
+                     std::ref(state_flags.ntp_ok), std::ref(sys_time), &rtc));
+  dispatch(
+      next_calls_ms.timekeeper,
+      std::bind(TimeKeeper, std::cref(state_flags), std::ref(sys_time), &rtc));
   dispatch(next_calls_ms.mqtt,
            std::bind(UpdateMqtt, std::cref(state_flags),
                      std::ref(state_flags.mqtt_ok), std::cref(mqtt_packet)));
   dispatch(next_calls_ms.read_pressure,
            std::bind(ReadTankPressure, std::ref(mqtt_packet)));
-  dispatch(next_calls_ms.serial, std::bind(UpdateSerial, &rtc));
+  dispatch(next_calls_ms.serial,
+           std::bind(UpdateSerial, std::cref(sys_time), &rtc));
 
   epoch_ms = rtc.getEpoch() * 1000L + rtc.getMillis();
   delay(
