@@ -1,7 +1,8 @@
 #include <Arduino.h>
 #include <WiFi.h>
 #include <PubSubClient.h>  // knolleary/PubSubClient@^2.8
-#include <ESP32Time.h> // fbiego/ESP32Time@^2.0.6
+#include <ESP32Time.h>  // fbiego/ESP32Time@^2.0.6
+#include "NTP.h"  // sstaub/NTP@^1.6
 #include "/home/ctl/untracked/wifi-cred.h"
 #include "/home/ctl/untracked/mqtt-cred.h"
 
@@ -15,47 +16,129 @@ constexpr int64_t MAX_SLEEP_MS=10000;
 constexpr int64_t MIN_SLEEP_MS=50;
 // When calculating the next event, we allow the current call to be at most this much
 // in the past. This cutoff is necessary to prevent situations where some events play
-// catchup with realtime forever (next event always going into the past desite max
+// catchup with realtime forever (next event always going into the past despite max
 // update rate).
 constexpr int64_t MAX_BACKLOG_MS=100;
 
-void setupWifi() {
+struct StateFlags {
+  bool wifi_ok = false;
+  bool ntp_ok = false;
+  bool mqtt_ok = false;
+};
+
+struct MqttPacket {
+  int32_t tank_pressure = 0;
+
+  // Increment when data updated.
+  int64_t version = 0;
+};
+
+int64_t ConnectWifi(bool &wifi_ok) {
   static const char ssid[] = SSID;
   static const char password[] = SSID_CRED;
-  //IPAddress dns(8, 8, 8, 8);  //Google dns 
-  Serial.print("Connecting to ");
-  Serial.println(ssid);
-  WiFi.begin(ssid, password);
-  Serial.print("MAC address ");
-  Serial.println(WiFi.macAddress());
-  while (WiFi.status() != WL_CONNECTED) {
-    delay(200);
-    Serial.print(".");
+  static bool connect_announce = true;
+  wifi_ok = WiFi.status() == WL_CONNECTED;
+  if (wifi_ok) {
+    if (connect_announce) {
+      Serial.println("WIFI Connected :)");
+    } else {
+      Serial.println("WIFI ok");
+    }
+    connect_announce = false;
+    return 10000;  // Poll every 10s
   }
-  Serial.println("\nConnected :) ");
-  delay(200);  // Maybe helps.  
+
+  connect_announce = true;
+  Serial.printf("Try connecting to %s MAC %s state %d\n", ssid, WiFi.macAddress().c_str(), WiFi.status());
+
+  WiFi.disconnect();
+  WiFi.begin(ssid, password);
+
+  return 3000;  // Retry time
 }
 
-PubSubClient * getMqttClient() {
-  static const char brokerAddress[] = "146.148.110.247"; // "broker.losant.com";
+int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok) {
+  static WiFiUDP wifiUdp;
+  static NTP ntp(wifiUdp);
+  if (state_flags.wifi_ok && !ntp_ok) {
+    Serial.println("NTP connect attempt ");
+    ntp.begin();
+    ntp_ok = true;
+    return 1000;
+  } else if (!state_flags.wifi_ok) {
+    Serial.println("NTP no wifi ");
+    ntp.stop();
+    ntp_ok = false;
+    return 1000;
+  } else {
+    ntp.update();
+    Serial.print("NTP: ");
+    Serial.println(ntp.formattedTime("%A %T"));
+    return 20000;
+  }
+}
+
+int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok, const MqttPacket &packet) {
+  static const char brokerAddress[] = "broker.losant.com"; // "146.148.110.247";
   static const uint16_t brokerPort = 1883;
-  static const char devId[] = MQTT_DEV_ID;
-  static const char devUser[] = MQTT_DEV_USER;
-  static const char devPass[] = MQTT_DEV_PASS;
+  static const char devId[] = MQTT_DEV_ID_DEV;
+  static const char devUser[] = MQTT_DEV_USER_2;
+  static const char devPass[] = MQTT_DEV_PASS_2;
+  static bool connect_announce = true;
+  static bool connecting = false;
+  static int64_t sent_version = 0;
 
   static WiFiClient wifiClient;
   static PubSubClient client(brokerAddress, 1883, wifiClient);
+  static char message[1024];  // TODO: send buffer in client is 256
 
-  if (!client.connected()) {
-    Serial.print("Connecting MQTT ");
-    while (!client.connected()) {
-      Serial.print(",");
-      client.connect(devId, devUser, devPass);
-      delay(200);
-    }        
-    Serial.println("\nMQTT Connected");
+  if (packet.version <= sent_version) {
+    // No new data yet.
+    return 100;
   }
-  return &client;
+
+  if (state_flags.wifi_ok && !mqtt_ok && !connecting) {
+    Serial.printf("MQTT connect attempt for packet %lld -> %lld\n", sent_version, packet.version);
+    client.connect(devId, devUser, devPass);
+    connecting = true;
+    return 100;
+  } else if (state_flags.wifi_ok && !mqtt_ok && connecting) {
+    bool old_mqtt_ok = mqtt_ok;
+    mqtt_ok = client.connected();
+    connecting = !mqtt_ok;
+    if (!old_mqtt_ok && mqtt_ok) {
+      Serial.printf("MQTT connected\n", packet.version);
+    }    
+    return 500;
+  } else if (state_flags.wifi_ok && mqtt_ok) {
+    bool old_mqtt_ok = mqtt_ok;
+    mqtt_ok = client.connected();
+    if (mqtt_ok) {
+      Serial.printf("MQTT sending %lld\n", packet.version);
+      snprintf(message, sizeof(message), 
+        R"({ 
+            "data": { 
+              "ping-count": %lld,
+              "tank-pressure": %ld 
+            } 
+          })", packet.version, packet.tank_pressure);
+        client.publish("losant/" MQTT_DEV_ID_DEV "/state", message);
+        sent_version = packet.version;
+    }
+    if (!old_mqtt_ok && mqtt_ok) {
+      Serial.println("MQTT disconnected");
+    }
+    return 1000;
+  } else if (!state_flags.wifi_ok) {
+    client.disconnect();
+    mqtt_ok = false;
+    connecting = false;
+    Serial.println("MQTT no wifi");
+    return 1000;
+  }
+
+  Serial.printf("MQTT bad state %b,%b,%b\n", state_flags.wifi_ok, mqtt_ok, connecting);
+  return 1000;
 }
 
 void setup() {
@@ -65,7 +148,6 @@ void setup() {
   pinMode(LED_BLUE, OUTPUT);
 
   Serial.begin(115200);
-  setupWifi();
 }
 
 int64_t UpdateLeds() {
@@ -79,24 +161,12 @@ int64_t UpdateLeds() {
   return 250L;
 }
 
-int64_t UpdateMisc() {
-  static int counter = 4200;
-  char message[1024];
+int64_t ReadTankPressure(MqttPacket &packet) {
+  packet.tank_pressure = analogRead(TANK_PRESSURE);
+  packet.version++;
+  Serial.printf("READ pressure %ld @ %lld\n", packet.tank_pressure, packet.version);
 
-  PubSubClient * mqtt = getMqttClient();
-  int tankPressure = analogRead(TANK_PRESSURE);
-  snprintf(message, sizeof(message), 
-  R"({ 
-      "data": { 
-        "ping-count": %d,
-        "tank-pressure": %d 
-      } 
-    })", counter++, tankPressure);
-  mqtt->publish("losant/" MQTT_DEV_ID "/state", message);
-  digitalWrite(PUMP_CONTROL, counter < 4300 && counter%4==1); 
-  Serial.printf("State: pump %d pressure %d\n", counter%2, tankPressure);
-
-  return 2000L;
+  return 2000;
 }
 
 int64_t UpdateSerial(ESP32Time *rtc) {
@@ -106,13 +176,18 @@ int64_t UpdateSerial(ESP32Time *rtc) {
 }
 
 void loop() {
+  static StateFlags state_flags;
   static struct {
+     int64_t wifi = 0;
      int64_t leds = 0;
+     int64_t ntp = 0;
      int64_t serial = 0;
-     int64_t misc = 0; 
+     int64_t mqtt = 0;
+     int64_t read_pressure = 0;
   } next_calls_ms;
 
   static ESP32Time rtc(2 * 3600); // UTC+2
+  static MqttPacket mqtt_packet;
 
   int64_t epoch_ms = rtc.getEpoch() * 1000L + rtc.getMillis();
   int64_t next_epoch_ms = epoch_ms + MAX_SLEEP_MS;
@@ -126,7 +201,10 @@ void loop() {
   };
 
   dispatch(next_calls_ms.leds, UpdateLeds);
-  dispatch(next_calls_ms.misc, UpdateMisc);
+  dispatch(next_calls_ms.wifi, std::bind(ConnectWifi, std::ref(state_flags.wifi_ok)));
+  dispatch(next_calls_ms.ntp, std::bind(ConnectNtp, std::cref(state_flags), std::ref(state_flags.ntp_ok)));
+  dispatch(next_calls_ms.mqtt, std::bind(UpdateMqtt, std::cref(state_flags), std::ref(state_flags.mqtt_ok), std::cref(mqtt_packet)));
+  dispatch(next_calls_ms.read_pressure, std::bind(ReadTankPressure, std::ref(mqtt_packet)));
   dispatch(next_calls_ms.serial, std::bind(UpdateSerial, &rtc));
 
   epoch_ms = rtc.getEpoch() * 1000L + rtc.getMillis();  
