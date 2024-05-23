@@ -4,11 +4,15 @@
 #include <WiFi.h>
 #include <time.h>
 
+#include <vector>
+
 #include "/home/ctl/untracked/mqtt-cred.h"
 #include "/home/ctl/untracked/wifi-cred.h"
 #include "NTP.h"  // sstaub/NTP@^1.6
 
 #define PUMP_CONTROL 14
+#define PUMP_CONTROL_2 15
+
 #define TANK_PRESSURE 33
 #define LED_RED 16
 #define LED_GREEN 17
@@ -26,6 +30,7 @@ struct StateFlags {
   bool wifi_ok = false;
   bool ntp_ok = false;
   bool mqtt_ok = false;
+  bool pumping = false;
 };
 
 struct MqttPacket {
@@ -63,6 +68,7 @@ int64_t ConnectWifi(bool &wifi_ok) {
 // All times in usec since Epoch.
 struct SysTime {
   int64_t best_time = 0;  // Our best estimate
+  int64_t micros_at_best_time = 0;
   int64_t ntp_time = 0;
   int64_t rtc_at_ntp_time = 0;
 };
@@ -165,6 +171,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
 
 void setup() {
   pinMode(PUMP_CONTROL, OUTPUT);
+  pinMode(PUMP_CONTROL_2, OUTPUT);
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
@@ -176,7 +183,9 @@ int64_t UpdateLeds(const StateFlags &state_flags) {
   static bool is_blink = false;
   bool blink = false;
   int led = -1;
-  if (!state_flags.wifi_ok) {
+  if (state_flags.pumping) {
+    led = 2;
+  } else if (!state_flags.wifi_ok) {
     led = 0;
     blink = true;
   } else if (!state_flags.ntp_ok || !state_flags.mqtt_ok) {
@@ -216,6 +225,7 @@ int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
 
   int64_t rtc_time = RtcMicros(rtc);
   sys_time.best_time = rtc_time + rtc_offset;
+  sys_time.micros_at_best_time = micros();
 
   if (!state_flags.ntp_ok) {
     return 1000;  // No ntp, no can adjust.
@@ -246,9 +256,65 @@ int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
   return 10000;  // ZZZ more in final.
 }
 
+constexpr int HMS(int h, int m, int s) {
+  return ((h + 24) % 24) * 3600 + ((m + 60) % 60) * 60 + ((s + 60) % 60);
+};
+
+int64_t BestMicros(const SysTime &sys_time) {
+  return micros() - sys_time.micros_at_best_time + sys_time.best_time;
+}
+
+int64_t PumpControl(const SysTime &sys_time, bool &state_pumping) {
+  struct ActiveInterval {
+    int start_sec;
+    int end_sec;
+  };
+
+  static const std::vector<ActiveInterval> schedule{
+      {HMS(21 - 3, 0, 0), HMS(21, 1, 0)},
+      {HMS(8 - 3, 0, 0), HMS(8, 1, 0)},
+
+      /// ZZZZZ
+      {HMS(0 - 3, 01, 0), HMS(0 - 3, 01, 30)},
+      {HMS(0 - 3, 02, 0), HMS(0 - 3, 02, 30)},
+      {HMS(0 - 3, 03, 0), HMS(0 - 3, 03, 30)},
+      {HMS(0 - 3, 04, 0), HMS(0 - 3, 04, 30)},
+      {HMS(0 - 3, 05, 0), HMS(0 - 3, 05, 30)},
+      {HMS(0 - 3, 06, 0), HMS(0 - 3, 06, 30)},
+      {HMS(0 - 3, 07, 0), HMS(0 - 3, 07, 30)},
+      {HMS(0 - 3, 8, 0), HMS(0 - 3, 8, 30)},
+      {HMS(0 - 3, 9, 0), HMS(0 - 3, 9, 30)},
+
+  };
+
+  time_t best_time_s = BestMicros(sys_time) / 1000000LL;
+  tm *dt = gmtime(&best_time_s);
+
+  int time_of_day_s = HMS(dt->tm_hour, dt->tm_min, dt->tm_sec);
+
+  bool active = false;
+  for (const ActiveInterval &i : schedule) {
+    // Are we in the interval with ascending start to end ?
+    bool in_asc_interval = std::min(i.start_sec, i.end_sec) <= time_of_day_s &&
+                           time_of_day_s < std::max(i.start_sec, i.end_sec);
+    // Active if in interval, or complement if start < end (interval crosses
+    // 24h).
+    active |= (i.start_sec <= i.end_sec ? in_asc_interval : !in_asc_interval);
+    Serial.printf("PUMP: Check %d < %d < %d in int %d act = %d ?\n",
+                  i.start_sec, time_of_day_s, i.end_sec, (int)in_asc_interval,
+                  (int)active);
+  }
+
+  digitalWrite(PUMP_CONTROL, active);
+  digitalWrite(PUMP_CONTROL_2, active);
+  state_pumping = active;
+
+  return 5000;
+}
+
 int64_t UpdateSerial(const SysTime &sys_time, ESP32Time *rtc) {
   // Serial.print(rtc->getTime("SERIAL: RTC=%Y-%m-%d %H:%M:%S"));
-  Serial.printf(".%03d\n", rtc->getMillis());
+  // Serial.printf(".%03d\n", rtc->getMillis());
 
   Serial.printf("SERIAL: SysTime{best=%lld,ntp=%lld,rtc@ntp=%lld}\n",
                 sys_time.best_time, sys_time.ntp_time,
@@ -274,6 +340,7 @@ void loop() {
     int64_t serial = 0;
     int64_t mqtt = 0;
     int64_t read_pressure = 0;
+    int64_t pump_control = 0;
   } next_calls_ms;
 
   static ESP32Time rtc;
@@ -304,6 +371,10 @@ void loop() {
                      std::ref(state_flags.mqtt_ok), std::cref(mqtt_packet)));
   dispatch(next_calls_ms.read_pressure,
            std::bind(ReadTankPressure, std::ref(mqtt_packet)));
+  dispatch(next_calls_ms.pump_control,
+           std::bind(PumpControl, std::cref(sys_time),
+                     std::ref(state_flags.pumping)));
+
   dispatch(next_calls_ms.serial,
            std::bind(UpdateSerial, std::cref(sys_time), &rtc));
 
