@@ -69,13 +69,20 @@ int64_t ConnectWifi(bool &wifi_ok) {
 // All times in usec since Epoch.
 struct SysTime {
   int64_t best_time = 0;  // Our best estimate
-  int64_t micros_at_best_time = 0;
+  uint32_t micros_at_best_time =
+      0;  // Be careful with unisgned and rollover (every ~70min)!
   int64_t ntp_time = 0;
   int64_t rtc_at_ntp_time = 0;
 };
 
 int64_t RtcMicros(ESP32Time *rtc) {
   return rtc->getEpoch() * 1000000LL + rtc->getMicros();
+}
+
+int64_t BestMicros(const SysTime &sys_time) {
+  // Unsigned dragons here: first take the uint32_t difference, which will
+  // work even when micros wrapped, then the addition casts up to int64_t
+  return (micros() - sys_time.micros_at_best_time) + sys_time.best_time;
 }
 
 int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok,
@@ -261,10 +268,6 @@ int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
 constexpr int HMS(int h, int m, int s) {
   return ((h + 24) % 24) * 3600 + ((m + 60) % 60) * 60 + ((s + 60) % 60);
 };
-
-int64_t BestMicros(const SysTime &sys_time) {
-  return micros() - sys_time.micros_at_best_time + sys_time.best_time;
-}
 
 int64_t PumpControl(bool &state_pumping, const SysTime &sys_time,
                     MqttPacket &mqtt_packet) {
