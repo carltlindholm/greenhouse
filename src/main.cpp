@@ -35,8 +35,9 @@ struct StateFlags {
 
 struct MqttPacket {
   int32_t tank_pressure = 0;
+  int32_t sec_to_next_pump = 0;
 
-  // Increment when data updated.
+  // Increment when data send is requested (some changes do not trigger).
   int64_t version = 0;
 };
 
@@ -143,12 +144,13 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
       Serial.printf("MQTT sending %lld\n", packet.version);
       snprintf(message, sizeof(message),
                R"({ 
-            "data": { 
-              "ping-count": %lld,
-              "tank-pressure": %ld 
-            } 
-          })",
-               packet.version, packet.tank_pressure);
+"data": { 
+  "ping-count": %lld, 
+  "tank-pressure": %ld,
+  "sec-to-next-pump": %ld 
+} 
+})",
+               packet.version, packet.tank_pressure, packet.sec_to_next_pump);
       client.publish("losant/" MQTT_DEV_ID_DEV "/state", message);
       sent_version = packet.version;
     }
@@ -211,7 +213,7 @@ int64_t ReadTankPressure(MqttPacket &packet) {
   Serial.printf("READ pressure %ld @ %lld\n", packet.tank_pressure,
                 packet.version);
 
-  return 5000;
+  return 2000;
 }
 
 int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
@@ -264,26 +266,30 @@ int64_t BestMicros(const SysTime &sys_time) {
   return micros() - sys_time.micros_at_best_time + sys_time.best_time;
 }
 
-int64_t PumpControl(const SysTime &sys_time, bool &state_pumping) {
+int64_t PumpControl(bool &state_pumping, const SysTime &sys_time,
+                    MqttPacket &mqtt_packet) {
   struct ActiveInterval {
     int start_sec;
     int end_sec;
   };
 
+  // ZZZZZ
+  const int h = 9 - 3;
+  const int m = 40;
   static const std::vector<ActiveInterval> schedule{
-      {HMS(21 - 3, 0, 0), HMS(21, 1, 0)},
-      {HMS(8 - 3, 0, 0), HMS(8, 1, 0)},
+      {HMS(21 - 3, 0, 0), HMS(21 - 3, 1, 0)},
+      {HMS(8 - 3, 0, 0), HMS(8 - 3, 1, 0)},
 
       /// ZZZZZ
-      {HMS(0 - 3, 01, 0), HMS(0 - 3, 01, 30)},
-      {HMS(0 - 3, 02, 0), HMS(0 - 3, 02, 30)},
-      {HMS(0 - 3, 03, 0), HMS(0 - 3, 03, 30)},
-      {HMS(0 - 3, 04, 0), HMS(0 - 3, 04, 30)},
-      {HMS(0 - 3, 05, 0), HMS(0 - 3, 05, 30)},
-      {HMS(0 - 3, 06, 0), HMS(0 - 3, 06, 30)},
-      {HMS(0 - 3, 07, 0), HMS(0 - 3, 07, 30)},
-      {HMS(0 - 3, 8, 0), HMS(0 - 3, 8, 30)},
-      {HMS(0 - 3, 9, 0), HMS(0 - 3, 9, 30)},
+      {HMS(h, m + 1, 0), HMS(h, m + 1, 10)},
+      {HMS(h, m + 2, 0), HMS(h, m + 2, 10)},
+      {HMS(h, m + 3, 0), HMS(h, m + 3, 10)},
+      {HMS(h, m + 4, 0), HMS(h, m + 4, 10)},
+      {HMS(h, m + 5, 0), HMS(h, m + 5, 10)},
+      // {HMS(h, m + 6, 0), HMS(h, m + 6, 10)},
+      // {HMS(h, m + 7, 0), HMS(h, m + 7, 10)},
+      // {HMS(h, m + 8, 0), HMS(h, m + 8, 10)},
+      // {HMS(h, m + 9, 0), HMS(h, m + 9, 10)},
 
   };
 
@@ -292,6 +298,7 @@ int64_t PumpControl(const SysTime &sys_time, bool &state_pumping) {
 
   int time_of_day_s = HMS(dt->tm_hour, dt->tm_min, dt->tm_sec);
 
+  int min_next_s = 100000;
   bool active = false;
   for (const ActiveInterval &i : schedule) {
     // Are we in the interval with ascending start to end ?
@@ -300,16 +307,20 @@ int64_t PumpControl(const SysTime &sys_time, bool &state_pumping) {
     // Active if in interval, or complement if start < end (interval crosses
     // 24h).
     active |= (i.start_sec <= i.end_sec ? in_asc_interval : !in_asc_interval);
-    Serial.printf("PUMP: Check %d < %d < %d in int %d act = %d ?\n",
-                  i.start_sec, time_of_day_s, i.end_sec, (int)in_asc_interval,
-                  (int)active);
+    // Serial.printf("PUMP: Check %d < %d < %d in int %d act = %d ?\n",
+    //               i.start_sec, time_of_day_s, i.end_sec,
+    //               (int)in_asc_interval, (int)active);
+    int start_dist_s = (i.start_sec - time_of_day_s + 86400) % 86400;
+    min_next_s = std::min(min_next_s, start_dist_s);
   }
 
   digitalWrite(PUMP_CONTROL, active);
   digitalWrite(PUMP_CONTROL_2, active);
   state_pumping = active;
 
-  return 5000;
+  mqtt_packet.sec_to_next_pump = active ? 0 : min_next_s;
+
+  return 500;
 }
 
 int64_t UpdateSerial(const SysTime &sys_time, ESP32Time *rtc) {
@@ -372,8 +383,8 @@ void loop() {
   dispatch(next_calls_ms.read_pressure,
            std::bind(ReadTankPressure, std::ref(mqtt_packet)));
   dispatch(next_calls_ms.pump_control,
-           std::bind(PumpControl, std::cref(sys_time),
-                     std::ref(state_flags.pumping)));
+           std::bind(PumpControl, std::ref(state_flags.pumping),
+                     std::cref(sys_time), std::ref(mqtt_packet)));
 
   dispatch(next_calls_ms.serial,
            std::bind(UpdateSerial, std::cref(sys_time), &rtc));
