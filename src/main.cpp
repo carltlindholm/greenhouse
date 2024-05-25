@@ -36,6 +36,7 @@ struct StateFlags {
 struct MqttPacket {
   int32_t tank_pressure = 0;
   int32_t sec_to_next_pump = 0;
+  int64_t rtc_offset_post_init = 0;
 
   // Increment when data send is requested (some changes do not trigger).
   int64_t version = 0;
@@ -154,10 +155,12 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
 "data": { 
   "ping-count": %lld, 
   "tank-pressure": %ld,
-  "sec-to-next-pump": %ld 
+  "sec-to-next-pump": %ld,
+  "rtc-offset-post-init": %lld
 } 
 })",
-               packet.version, packet.tank_pressure, packet.sec_to_next_pump);
+               packet.version, packet.tank_pressure, packet.sec_to_next_pump,
+               packet.rtc_offset_post_init);
       client.publish("losant/" MQTT_DEV_ID_DEV "/state", message);
       sent_version = packet.version;
     }
@@ -224,7 +227,7 @@ int64_t ReadTankPressure(MqttPacket &packet) {
 }
 
 int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
-                   ESP32Time *rtc) {
+                   MqttPacket &mqtt, ESP32Time *rtc) {
   constexpr int64_t kMaxAdjustRateUsPerS = 100000LL;  // 10 % = 100000
   static int initial_loops = 4;
   static int64_t initial_rtc_offset = 0;
@@ -262,6 +265,7 @@ int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
                   (rtc_offset - initial_rtc_offset) / 1e6L, rtc_offset);
   }
 
+  mqtt.rtc_offset_post_init = rtc_offset - initial_rtc_offset;
   return 10000;  // ZZZ more in final.
 }
 
@@ -284,11 +288,11 @@ int64_t PumpControl(bool &state_pumping, const SysTime &sys_time,
       {HMS(8 - 3, 0, 0), HMS(8 - 3, 1, 0)},
 
       /// ZZZZZ
-      {HMS(h, m + 1, 0), HMS(h, m + 1, 10)},
-      {HMS(h, m + 2, 0), HMS(h, m + 2, 10)},
-      {HMS(h, m + 3, 0), HMS(h, m + 3, 10)},
-      {HMS(h, m + 4, 0), HMS(h, m + 4, 10)},
-      {HMS(h, m + 5, 0), HMS(h, m + 5, 10)},
+      // {HMS(h, m + 1, 0), HMS(h, m + 1, 10)},
+      // {HMS(h, m + 2, 0), HMS(h, m + 2, 10)},
+      // {HMS(h, m + 3, 0), HMS(h, m + 3, 10)},
+      // {HMS(h, m + 4, 0), HMS(h, m + 4, 10)},
+      // {HMS(h, m + 5, 0), HMS(h, m + 5, 10)},
       // {HMS(h, m + 6, 0), HMS(h, m + 6, 10)},
       // {HMS(h, m + 7, 0), HMS(h, m + 7, 10)},
       // {HMS(h, m + 8, 0), HMS(h, m + 8, 10)},
@@ -377,9 +381,9 @@ void loop() {
   dispatch(next_calls_ms.ntp,
            std::bind(ConnectNtp, std::cref(state_flags),
                      std::ref(state_flags.ntp_ok), std::ref(sys_time), &rtc));
-  dispatch(
-      next_calls_ms.timekeeper,
-      std::bind(TimeKeeper, std::cref(state_flags), std::ref(sys_time), &rtc));
+  dispatch(next_calls_ms.timekeeper,
+           std::bind(TimeKeeper, std::cref(state_flags), std::ref(sys_time),
+                     std::ref(mqtt_packet), &rtc));
   dispatch(next_calls_ms.mqtt,
            std::bind(UpdateMqtt, std::cref(state_flags),
                      std::ref(state_flags.mqtt_ok), std::cref(mqtt_packet)));
