@@ -102,10 +102,16 @@ int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok,
     return 1000;
   } else {
     ntp.update();
-    sys_time.ntp_time = ntp.epoch() * 1000000LL;
-    sys_time.rtc_at_ntp_time = RtcMicros(rtc);
-    Serial.print("NTP: ");
-    Serial.println(ntp.formattedTime("%A %T"));
+    const int64_t new_ntp_time = ntp.epoch() * 1000000LL;
+    if (new_ntp_time != sys_time.ntp_time) {
+      sys_time.ntp_time = new_ntp_time;
+      sys_time.rtc_at_ntp_time = RtcMicros(rtc);
+      Serial.print("NTP: @  ");
+      Serial.println(ntp.formattedTime("%A %T"));
+    } else {
+      Serial.print("NTP: Strange, did not change  - ignoring! @ ");
+      Serial.println(ntp.formattedTime("%A %T"));
+    }
     return 20000;
   }
 }
@@ -167,7 +173,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
     if (!old_mqtt_ok && mqtt_ok) {
       Serial.println("MQTT disconnected");
     }
-    return 1000;
+    return mqtt_ok ? 30000 : 5000;
   } else if (!state_flags.wifi_ok) {
     client.disconnect();
     mqtt_ok = false;
@@ -266,7 +272,7 @@ int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
   }
 
   mqtt.rtc_offset_post_init = rtc_offset - initial_rtc_offset;
-  return 10000;  // ZZZ more in final.
+  return 5000;  // ZZZ more in final.
 }
 
 constexpr int HMS(int h, int m, int s) {
