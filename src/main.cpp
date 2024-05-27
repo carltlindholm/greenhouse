@@ -125,39 +125,59 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
   static const char devUser[] = MQTT_DEV_USER_2;
   static const char devPass[] = MQTT_DEV_PASS_2;
   static bool connect_announce = true;
-  static bool connecting = false;
+  static int is_connected_polls_left = 0;
+  static int publish_failure_count = 0;
   static int64_t sent_version = 0;
 
   static WiFiClient wifiClient;
   static PubSubClient client(brokerAddress, 1883, wifiClient);
-  static char message[1024];  // TODO: send buffer in client is 256
+  static char message[2048];  // TODO: send buffer in client is 256
 
+  static int zzz_version_waits = 0;
   if (packet.version <= sent_version) {
+    ++zzz_version_waits;
+    if (zzz_version_waits > 1000 /* 100s*/) {
+      Serial.printf("MQTT version waits too large\n", zzz_version_waits);
+      return 1000;
+    }
     // No new data yet.
     return 100;
   }
 
-  if (state_flags.wifi_ok && !mqtt_ok && !connecting) {
+  if (!state_flags.wifi_ok) {
+    client.disconnect();
+    mqtt_ok = false;
+    is_connected_polls_left = 0;
+    Serial.println("MQTT no wifi");
+    return 1000;
+  } else if (state_flags.wifi_ok && !mqtt_ok && is_connected_polls_left < 1) {
     Serial.printf("MQTT connect attempt for packet %lld -> %lld\n",
                   sent_version, packet.version);
+    client.disconnect();  // Just to be sure
     client.connect(devId, devUser, devPass);
-    connecting = true;
-    return 100;
-  } else if (state_flags.wifi_ok && !mqtt_ok && connecting) {
+    client.setBufferSize(512);
+    is_connected_polls_left = 100;
+    return 500;
+  } else if (state_flags.wifi_ok && !mqtt_ok && is_connected_polls_left > 0) {
     bool old_mqtt_ok = mqtt_ok;
     mqtt_ok = client.connected();
-    connecting = !mqtt_ok;
-    if (!old_mqtt_ok && mqtt_ok) {
-      Serial.printf("MQTT connected\n", packet.version);
+    if (is_connected_polls_left < 20) {
+      Serial.printf("MQTT connected polls left %ld old_ok=%d ok=%d\n",
+                    is_connected_polls_left, old_mqtt_ok, mqtt_ok);
     }
+    is_connected_polls_left = mqtt_ok ? 0 : is_connected_polls_left - 1;
     return 500;
   } else if (state_flags.wifi_ok && mqtt_ok) {
     bool old_mqtt_ok = mqtt_ok;
     mqtt_ok = client.connected();
-    if (mqtt_ok) {
-      Serial.printf("MQTT sending %lld\n", packet.version);
-      snprintf(message, sizeof(message),
-               R"({ 
+    if (!mqtt_ok) {
+      is_connected_polls_left = 0;
+      Serial.printf("MQTT disconnected %d -> %d\n", old_mqtt_ok, mqtt_ok);
+      return 5000;  // Retry in 5s
+    }
+    Serial.printf("MQTT sending %lld\n", packet.version);
+    snprintf(message, sizeof(message),
+             R"({ 
 "data": { 
   "ping-count": %lld, 
   "tank-pressure": %ld,
@@ -165,25 +185,24 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
   "rtc-offset-post-init": %lld
 } 
 })",
-               packet.version, packet.tank_pressure, packet.sec_to_next_pump,
-               packet.rtc_offset_post_init);
-      client.publish("losant/" MQTT_DEV_ID_DEV "/state", message);
-      sent_version = packet.version;
+             packet.version, packet.tank_pressure, packet.sec_to_next_pump,
+             packet.rtc_offset_post_init);
+    const bool success =
+        client.publish("losant/" MQTT_DEV_ID_DEV "/state", message);
+    sent_version = packet.version;
+    publish_failure_count = success ? 0 : publish_failure_count + 1;
+    if (publish_failure_count > 10) {
+      Serial.printf("MQTT seubsequent publish failures\n");
+      publish_failure_count = 0;
+      is_connected_polls_left = 0;
+      mqtt_ok = false;
+      return 5000;
     }
-    if (!old_mqtt_ok && mqtt_ok) {
-      Serial.println("MQTT disconnected");
-    }
-    return mqtt_ok ? 30000 : 5000;
-  } else if (!state_flags.wifi_ok) {
-    client.disconnect();
-    mqtt_ok = false;
-    connecting = false;
-    Serial.println("MQTT no wifi");
-    return 1000;
+    return 30000;
   }
 
-  Serial.printf("MQTT bad state %b,%b,%b\n", state_flags.wifi_ok, mqtt_ok,
-                connecting);
+  Serial.printf("MQTT bad state %d,%d,%d\n", state_flags.wifi_ok, mqtt_ok,
+                is_connected_polls_left);
   return 1000;
 }
 
