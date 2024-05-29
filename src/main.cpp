@@ -133,13 +133,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
   static PubSubClient client(brokerAddress, 1883, wifiClient);
   static char message[2048];  // TODO: send buffer in client is 256
 
-  static int zzz_version_waits = 0;
   if (packet.version <= sent_version) {
-    ++zzz_version_waits;
-    if (zzz_version_waits > 1000 /* 100s*/) {
-      Serial.printf("MQTT version waits too large\n", zzz_version_waits);
-      return 1000;
-    }
     // No new data yet.
     return 100;
   }
