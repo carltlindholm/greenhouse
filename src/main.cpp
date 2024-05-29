@@ -2,6 +2,7 @@
 #include <ESP32Time.h>     // fbiego/ESP32Time@^2.0.6
 #include <PubSubClient.h>  // knolleary/PubSubClient@^2.8
 #include <WiFi.h>
+#include <esp_task_wdt.h>
 #include <time.h>
 
 #include <vector>
@@ -17,6 +18,12 @@
 #define LED_RED 16
 #define LED_GREEN 17
 #define LED_BLUE 18
+
+// Successful MQTT is our watchdog keepalive signal. This also means
+// if our MQTT broker is down we'll reboot loop, so with that in mind the
+// watchdog timeout should be large enough that we'd still do something
+// reasonable in this case (1*plant watering at least).
+#define WATCHDOG_TIMEOUT_S (11 * 3600 + 3117)
 
 constexpr int64_t MAX_SLEEP_MS = 10000;
 constexpr int64_t MIN_SLEEP_MS = 50;
@@ -41,6 +48,14 @@ struct MqttPacket {
   // Increment when data send is requested (some changes do not trigger).
   int64_t version = 0;
 };
+
+void WatchdogStart(int reset_timeout_s) {
+  // Configure to exevute panic = restart on timeout.
+  esp_task_wdt_init(reset_timeout_s, /*panic=*/true);
+  esp_task_wdt_add(nullptr);  // nullpr = this task.
+}
+
+void WatchdogImAlive() { esp_task_wdt_reset(); }
 
 int64_t ConnectWifi(bool &wifi_ok) {
   static const char ssid[] = SSID;
@@ -122,6 +137,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
       "broker.losant.com";  // "146.148.110.247";
   static const uint16_t brokerPort = 1883;
   static const char devId[] = MQTT_DEV_ID_DEV;
+  static const char topic[] = "losant/" MQTT_DEV_ID_DEV "/state";
   static const char devUser[] = MQTT_DEV_USER_2;
   static const char devPass[] = MQTT_DEV_PASS_2;
   static bool connect_announce = true;
@@ -181,8 +197,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
 })",
              packet.version, packet.tank_pressure, packet.sec_to_next_pump,
              packet.rtc_offset_post_init);
-    const bool success =
-        client.publish("losant/" MQTT_DEV_ID_DEV "/state", message);
+    const bool success = client.publish(topic, message);
     sent_version = packet.version;
     publish_failure_count = success ? 0 : publish_failure_count + 1;
     if (publish_failure_count > 10) {
@@ -192,22 +207,13 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
       mqtt_ok = false;
       return 5000;
     }
+    WatchdogImAlive();
     return 30000;
   }
 
   Serial.printf("MQTT bad state %d,%d,%d\n", state_flags.wifi_ok, mqtt_ok,
                 is_connected_polls_left);
   return 1000;
-}
-
-void setup() {
-  pinMode(PUMP_CONTROL, OUTPUT);
-  pinMode(PUMP_CONTROL_2, OUTPUT);
-  pinMode(LED_GREEN, OUTPUT);
-  pinMode(LED_RED, OUTPUT);
-  pinMode(LED_BLUE, OUTPUT);
-
-  Serial.begin(115200);
 }
 
 int64_t UpdateLeds(const StateFlags &state_flags) {
@@ -364,6 +370,18 @@ int64_t UpdateSerial(const SysTime &sys_time, ESP32Time *rtc) {
                 dt->tm_min, dt->tm_sec, sys_time.best_time % 1000000LL);
 
   return 5000L;
+}
+
+void setup() {
+  pinMode(PUMP_CONTROL, OUTPUT);
+  pinMode(PUMP_CONTROL_2, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
+  pinMode(LED_RED, OUTPUT);
+  pinMode(LED_BLUE, OUTPUT);
+
+  Serial.begin(115200);
+
+  WatchdogStart(WATCHDOG_TIMEOUT_S);
 }
 
 void loop() {
