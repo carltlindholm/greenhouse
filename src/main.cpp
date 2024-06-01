@@ -24,6 +24,8 @@
 // watchdog timeout should be large enough that we'd still do something
 // reasonable in this case (1*plant watering at least).
 #define WATCHDOG_TIMEOUT_S (11 * 3600 + 3117)
+#define MQTT_KEEPALIVE_SEC 47
+#define MQTT_UPDATE_USEC 10000LL
 
 constexpr int64_t MAX_SLEEP_MS = 10000;
 constexpr int64_t MIN_SLEEP_MS = 50;
@@ -164,6 +166,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
     Serial.printf("MQTT connect attempt for packet %lld -> %lld\n",
                   sent_version, packet.version);
     client.disconnect();  // Just to be sure
+    client.setKeepAlive(MQTT_KEEPALIVE_SEC);
     client.connect(devId, devUser, devPass);
     client.setBufferSize(512);
     is_connected_polls_left = 100;
@@ -208,7 +211,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
       return 5000;
     }
     WatchdogImAlive();
-    return 30000;
+    return MQTT_UPDATE_USEC;
   }
 
   Serial.printf("MQTT bad state %d,%d,%d\n", state_flags.wifi_ok, mqtt_ok,
