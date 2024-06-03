@@ -1,6 +1,7 @@
 #include <Arduino.h>
-#include <ESP32Time.h>     // fbiego/ESP32Time@^2.0.6
-#include <PubSubClient.h>  // knolleary/PubSubClient@^2.8
+#include <ESP32Time.h>           // fbiego/ESP32Time@^2.0.6
+#include <PubSubClient.h>        // knolleary/PubSubClient@^2.8
+#include <SimpleKalmanFilter.h>  //  denyssene/SimpleKalmanFilter@^0.1.0
 #include <WiFi.h>
 #include <esp_task_wdt.h>
 #include <time.h>
@@ -26,6 +27,7 @@
 #define WATCHDOG_TIMEOUT_S (11 * 3600 + 3117)
 #define MQTT_KEEPALIVE_SEC 47
 #define MQTT_UPDATE_USEC 10000LL
+#define MQTT_DO_PUBLISH 1
 
 constexpr int64_t MAX_SLEEP_MS = 10000;
 constexpr int64_t MIN_SLEEP_MS = 50;
@@ -188,19 +190,25 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
       Serial.printf("MQTT disconnected %d -> %d\n", old_mqtt_ok, mqtt_ok);
       return 5000;  // Retry in 5s
     }
-    Serial.printf("MQTT sending %lld\n", packet.version);
-    snprintf(message, sizeof(message),
-             R"({ 
-"data": { 
-  "ping-count": %lld, 
-  "tank-pressure": %ld,
-  "sec-to-next-pump": %ld,
-  "rtc-offset-post-init": %lld
-} 
-})",
-             packet.version, packet.tank_pressure, packet.sec_to_next_pump,
-             packet.rtc_offset_post_init);
-    const bool success = client.publish(topic, message);
+    bool success = false;
+    if (MQTT_DO_PUBLISH) {
+      Serial.printf("MQTT sending %lld\n", packet.version);
+      snprintf(message, sizeof(message),
+               R"({ 
+  "data": { 
+    "ping-count": %lld, 
+    "tank-pressure": %ld,
+    "sec-to-next-pump": %ld,
+    "rtc-offset-post-init": %lld
+  } 
+  })",
+               packet.version, packet.tank_pressure, packet.sec_to_next_pump,
+               packet.rtc_offset_post_init);
+      success = client.publish(topic, message);
+    } else {
+      Serial.printf("MQTT FAKE sending %lld\n", packet.version);
+      success = true;
+    }
     sent_version = packet.version;
     publish_failure_count = success ? 0 : publish_failure_count + 1;
     if (publish_failure_count > 10) {
@@ -246,12 +254,18 @@ int64_t UpdateLeds(const StateFlags &state_flags) {
 }
 
 int64_t ReadTankPressure(MqttPacket &packet) {
-  packet.tank_pressure = analogRead(TANK_PRESSURE);
+  static int debug_print_count = 0;
+  static SimpleKalmanFilter pressureKalmanFilter(100, 100, 0.1);
+  int tank_pressure_raw = analogRead(TANK_PRESSURE);
+  int estimated_pressure = static_cast<int>(
+      pressureKalmanFilter.updateEstimate(tank_pressure_raw) + 0.5);
+  packet.tank_pressure = estimated_pressure;
   packet.version++;
-  Serial.printf("READ pressure %ld @ %lld\n", packet.tank_pressure,
-                packet.version);
-
-  return 2000;
+  if ((debug_print_count++) % 4 == 0) {
+    Serial.printf("READ pressure %ld (raw %ld) @ %lld\n", packet.tank_pressure,
+                  tank_pressure_raw, packet.version);
+  }
+  return 517LL;  // few ms extra to try to catch cancelling 50hz noise
 }
 
 int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
@@ -312,7 +326,7 @@ int64_t PumpControl(bool &state_pumping, const SysTime &sys_time,
   const int h = 9 - 3;
   const int m = 40;
   static const std::vector<ActiveInterval> schedule{
-      {HMS(21 - 3, 0, 0), HMS(21 - 3, 1, 0)},
+      {HMS(21 - 3, 0, 0), HMS(21 - 3, 1, 30)},
       {HMS(8 - 3, 0, 0), HMS(8 - 3, 1, 0)},
 
       /// ZZZZZ
