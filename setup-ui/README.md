@@ -1,4 +1,4 @@
-== Project config notes
+# Project config notes
 
 ```
 npm create vite@latest my-preact-app --template preact-ts
@@ -8,9 +8,17 @@ npm install
 cp ~/my-react-app/vite.config.ts  .
 npm install vite --save-dev
 npm install vite-plugin-singlefile --save-dev
+
+npm install bootstrap react-bootstrap
 ```
 
-Develeopment
+# Development
 
-npm run dev
+Run devserver 
+
+`npm run dev`
+
+Make distro
+
+`npm run build`
 

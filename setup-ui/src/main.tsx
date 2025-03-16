@@ -1,5 +1,4 @@
 import { render } from 'preact'
-import './index.css'
-import { App } from './app.tsx'
+import { GreenhouseSettingsApp } from './greenshouse-settings-app.tsx'
 
-render(<App />, document.getElementById('app')!)
+render(<GreenhouseSettingsApp />, document.getElementById('app')!)
