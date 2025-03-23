@@ -7,7 +7,7 @@ interface WifiSettings {
 }
 
 interface NtpSettings {
-    ntpServer: string;
+    server: string;
 }
 
 interface Settings {
@@ -20,11 +20,16 @@ interface SettingsContextType extends Settings {
     setNtp: (ntp: NtpSettings) => void;
 }
 
-export const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
+export const SettingsContext = createContext<SettingsContextType>({
+    wifi: { ssid: '', password: '' },
+    ntp: { server: '' },
+    setWifi: () => {},
+    setNtp: () => {},
+});
 
 const initialSettings: Settings = {
-    wifi: { ssid: '<ssid>', password: '' },
-    ntp: { ntpServer: '' },
+    wifi: { ssid: '', password: '' },
+    ntp: { server: 'pool.ntp.org' },
 };
 
 // Create settings to be provided to the context.
