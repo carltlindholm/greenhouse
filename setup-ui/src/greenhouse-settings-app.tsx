@@ -1,9 +1,10 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { Tab, Tabs, Card, Button } from 'react-bootstrap';
+import { Tab, Tabs, Button } from 'react-bootstrap';
 import { SettingsContext, createSettings } from './settings-context';
 import { useContext } from 'preact/hooks';
 import { WifiSettings } from './wifi-settings-card';
 import { NtpSettings } from './ntp-settings-card';
+import { MqttSettingsCard } from './mqtt-settings-card';
 
 const SettingsDebug = () => {
   const settings = useContext(SettingsContext);  // Access wifi settings
@@ -33,6 +34,12 @@ export function GreenhouseSettingsApp() {
             </Tab>
             <Tab eventKey="ntp" title="NTP">
               <NtpSettings />
+            </Tab>
+            <Tab eventKey="mqtt" title="MQTT">
+              <MqttSettingsCard
+                mqtt={globalSettings.mqtt}
+                setMqtt={globalSettings.setMqtt}
+              />
             </Tab>
           </Tabs>
           {/*  Bottom action bar  */}
