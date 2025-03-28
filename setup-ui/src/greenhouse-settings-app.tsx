@@ -5,9 +5,10 @@ import { useContext } from 'preact/hooks';
 import { WifiSettings } from './wifi-settings-card';
 import { NtpSettings } from './ntp-settings-card';
 import { MqttSettingsCard } from './mqtt-settings-card';
+import { PumpScheduleCard } from './pump-schedule-card';
 
 const SettingsDebug = () => {
-  const settings = useContext(SettingsContext);  // Access wifi settings
+  const settings = useContext(SettingsContext); // Access all settings
 
   return (
     <pre>
@@ -41,6 +42,12 @@ export function GreenhouseSettingsApp() {
                 setMqtt={globalSettings.setMqtt}
               />
             </Tab>
+            <Tab eventKey="pump-schedule" title="Pump Schedule">
+              <PumpScheduleCard
+                pumpSchedule={globalSettings.pumpSchedule}
+                setPumpSchedule={globalSettings.setPumpSchedule}
+              />
+            </Tab>
           </Tabs>
           {/*  Bottom action bar  */}
           <div className="bg-dark text-white p-3 text-center">
@@ -52,5 +59,5 @@ export function GreenhouseSettingsApp() {
         <SettingsDebug />
       </SettingsContext.Provider>
     </>
-  )
+  );
 }
