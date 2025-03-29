@@ -4,17 +4,19 @@
   "version": "0.0.0",
   "type": "module",
   "scripts": {
-    "dev": "vite",
+    "dev": "concurrently \"vite\" \"node fakeserver/server.js\"",
     "build": "tsc -b && vite build",
     "preview": "vite preview"
   },
   "dependencies": {
     "bootstrap": "^5.3.3",
+    "express": "^4.21.2",
     "preact": "^10.26.2",
     "react-bootstrap": "^2.10.9"
   },
   "devDependencies": {
     "@preact/preset-vite": "^2.10.1",
+    "concurrently": "^9.1.2",
     "typescript": "~5.7.2",
     "vite": "^6.2.2",
     "vite-plugin-singlefile": "^2.2.0"

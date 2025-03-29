@@ -22,3 +22,23 @@ Make distro
 
 `npm run build`
 
+# Fakeserver
+
+`npm install express`
+
+Then 
+
+1. edit fakserver/server.json as server
+2. add to vite config
+    ```
+      server: {
+        proxy: {
+          // Proxy /api requests to fakeserver
+          '/api': 'http://localhost:5000',
+        },
+      },  
+    ```
+
+`npm install concurrently --save-dev` 
+
+ then edit package.json +  "dev": "concurrently \"vite\" \"node fakeserver/server.js\"",

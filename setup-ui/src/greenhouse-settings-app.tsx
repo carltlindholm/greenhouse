@@ -1,7 +1,7 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { Tab, Tabs, Button } from 'react-bootstrap';
 import { SettingsContext, createSettings } from './settings-context';
-import { useContext } from 'preact/hooks';
+import { useContext, useEffect } from 'preact/hooks';
 import { WifiSettings } from './wifi-settings-card';
 import { NtpSettings } from './ntp-settings-card';
 import { MqttSettingsCard } from './mqtt-settings-card';
@@ -20,6 +20,17 @@ const SettingsDebug = () => {
 export function GreenhouseSettingsApp() {
   const globalSettings = createSettings();
 
+  useEffect(() => {
+    const fetchSettings = async () => {
+      const response = await fetch('/api/settings');
+      if (response.ok) {
+        const data = await response.json();
+        globalSettings.setWifi(data.wifi);
+      }
+    };
+
+    fetchSettings();
+  }, []);
   return (
     <>
       <SettingsContext.Provider value={globalSettings}>
