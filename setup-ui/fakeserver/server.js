@@ -3,20 +3,41 @@ import express from 'express';
 const app = express();
 const port = 5000; // Backend runs on port 5000
 
+let userSavedSettings = undefined;
+
+// Middleware to parse incoming JSON request bodies
+app.use(express.json()); // This is necessary for parsing JSON payloads
+
 // Fake endpoint for settings
 app.get('/api/settings', (req, res) => {
-  res.json({
-    wifi: {
-      ssid: 'MyWifi',
-      password: 'password123helloworld!',
+  res.json(userSavedSettings || {
+    "wifi": {
+      "ssid": "mywifi" + Math.floor(Math.random() * 1000),
+      "password": "pass",
     },
-    ntp: {
-      ntpServer: 'pool.ntp.org',
+    "ntp": {
+      "server": "pool.ntp.org"
     },
+    "mqtt": {
+      "broker": "",
+      "port": 1883,
+      "user": "",
+      "password": "",
+      "topic": ""
+    },
+    "pumpSchedule": {
+      "pump": [],
+      "utcOffset": 3
+    }
   });
 });
 
-// You can add other routes here as needed
+app.post('/api/save-settings', (req, res) => {
+  console.log("Saving settings", req.body);
+  userSavedSettings = req.body;
+  res.sendStatus(200);
+});
+
 app.listen(port, () => {
   console.log(`Backend is running at http://localhost:${port}`);
 });

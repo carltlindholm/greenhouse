@@ -50,11 +50,11 @@ interface SettingsContextType extends Settings {
   setPumpSchedule: (pumpSchedule: PumpSchedule) => void;
 }
 
-const INITIAL_SETTINGS:  Settings = {
+const INITIAL_SETTINGS: Settings = {
   wifi: { ssid: '', password: '' },
   ntp: { server: 'pool.ntp.org' },
   mqtt: { broker: '', port: MQTT_PORT, user: '', password: '', topic: '' },
-  pumpSchedule: {pump: [], utcOffset: UTC_OFFSET},
+  pumpSchedule: { pump: [], utcOffset: UTC_OFFSET },
 };
 
 export const SettingsContext = createContext<SettingsContextType>({
@@ -66,7 +66,7 @@ export const SettingsContext = createContext<SettingsContextType>({
 });
 
 // Create settings to be provided to the context.
-export function createSettings() : SettingsContextType {
+export function createSettings(): [SettingsContextType, (settings: Settings) => void] {
   const [settings, setSettings] = useState<Settings>(INITIAL_SETTINGS);
 
   const setWifi = (wifi: WifiSettings) => {
@@ -95,11 +95,11 @@ export function createSettings() : SettingsContextType {
       pumpSchedule,
     }));
   };
-  return {
+  return [{
     ...settings,
     setWifi,
     setNtp,
     setMqtt,
     setPumpSchedule,
-  };
+  }, setSettings];
 };

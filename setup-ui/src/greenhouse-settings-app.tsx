@@ -18,19 +18,31 @@ const SettingsDebug = () => {
 };
 
 export function GreenhouseSettingsApp() {
-  const globalSettings = createSettings();
+  const [globalSettings, setSettings] = createSettings();
+
+  const loadSettings = async () => {
+    const response = await fetch('/api/settings');
+    if (response.ok) {
+      const data = await response.json();
+      setSettings(data);  // Update settings in context
+    }
+  };
+
+  const saveSettings = async () => {
+    const response = await fetch('/api/save-settings', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(globalSettings),
+    });
+    if (!response.ok) {
+      alert('Failed to save settings. Please try again.');
+    }
+  };
 
   useEffect(() => {
-    const fetchSettings = async () => {
-      const response = await fetch('/api/settings');
-      if (response.ok) {
-        const data = await response.json();
-        globalSettings.setWifi(data.wifi);
-      }
-    };
-
-    fetchSettings();
+    loadSettings();  // Initial data load
   }, []);
+
   return (
     <>
       <SettingsContext.Provider value={globalSettings}>
@@ -62,9 +74,15 @@ export function GreenhouseSettingsApp() {
           </Tabs>
           {/*  Bottom action bar  */}
           <div className="bg-dark text-white p-3 text-center">
-            <Button variant="secondary" className="mx-2">Save</Button>
+            <Button className="mx-2" onClick={saveSettings}>Save</Button>
+            <Button
+              variant="secondary"
+              className="mx-2"
+              onClick={loadSettings}
+            >
+              Reload Saved
+            </Button>
             <Button variant="danger" className="mx-2">Reboot</Button>
-            <Button variant="info" className="mx-2">Reload from Saved</Button>
           </div>
         </div>
         <SettingsDebug />
