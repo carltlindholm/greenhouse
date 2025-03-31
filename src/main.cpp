@@ -8,8 +8,21 @@
 
 #include <vector>
 
-#include "/home/ctl/untracked/mqtt-cred.h"
-#include "/home/ctl/untracked/wifi-cred.h"
+#include "setup_ui.h"
+
+#define SETUP_MODE 1
+
+#ifdef SETUP_MODE
+  #define SSID "SSID"
+  #define SSID_CRED "SSID_CRED"
+  #define MQTT_DEV_ID_DEV "MQTT_DEV_ID_DEV"
+  #define MQTT_DEV_USER_2 "MQTT_DEV_USER_2"
+  #define MQTT_DEV_PASS_2 "MQTT_DEV_PASS_2"
+#else
+  #include "/home/ctl/untracked/mqtt-cred.h"
+  #include "/home/ctl/untracked/wifi-cred.h"
+#endif
+
 #include "NTP.h"  // sstaub/NTP@^1.6
 
 #define PUMP_CONTROL 14
@@ -402,6 +415,11 @@ void setup() {
 }
 
 void loop() {
+  #ifdef SETUP_MODE
+  SetupUI setup_ui;
+  setup_ui.run();
+  #endif
+
   static StateFlags state_flags;
   static SysTime sys_time;
   static struct {

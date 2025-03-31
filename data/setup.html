@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Hello World</title>
+  <style>
+    #hello-world {
+      width: 100%;
+      font-size: 42px;
+      font-family: sans-serif;
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <div id="hello-world">Hello World</div>
+  <script>
+    function getRandomRainbowColor() {
+      const hue = Math.random() * 360; // Random hue in HSV
+      return `hsl(${hue}, 100%, 50%)`; // Convert to HSL for CSS
+    }
+
+    const helloWorldDiv = document.getElementById('hello-world');
+    helloWorldDiv.style.backgroundColor = getRandomRainbowColor();
+  </script>
+</body>
+</html>
