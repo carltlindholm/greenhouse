@@ -30,6 +30,9 @@
 *.exe
 *.out
 *.app
+*.gz
+*.bin
+
 
 # platformio
 .pio
@@ -37,3 +40,5 @@
 .vscode/c_cpp_properties.json
 .vscode/launch.json
 .vscode/ipch
+plaformio3.7
+

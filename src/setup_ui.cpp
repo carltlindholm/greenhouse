@@ -20,8 +20,9 @@ void webserver() {
   });
 
   server.on("/", HTTP_GET, [&]() {
-    if (SPIFFS.exists("/index.html")) {
-      File file = SPIFFS.open("/setup.html", "r");
+    if (SPIFFS.exists("/setup.html.gz")) {
+      File file = SPIFFS.open("/setup.html.gz", "r");
+      // streamFile adds server.sendHeader("Content-Encoding", "gzip", true);
       server.streamFile(file, "text/html");
       file.close();
     } else {
@@ -46,7 +47,12 @@ void SetupUI::run() {
   WiFi.softAPConfig(local_ip, gateway, subnet);
 
   // Log the IP address
-  Serial.begin(115200);
+  if (SPIFFS.begin(true)) {
+    Serial.println("SPIFFS mounted successfully");
+  } else {
+    Serial.println("SPIFFS mount failed");
+  }  
+
   Serial.println("Access Point started");
   Serial.print("IP Address: ");
   Serial.println(WiFi.softAPIP());
