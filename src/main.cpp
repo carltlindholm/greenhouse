@@ -13,14 +13,14 @@
 #define SETUP_MODE 1
 
 #ifdef SETUP_MODE
-  #define SSID "SSID"
-  #define SSID_CRED "SSID_CRED"
-  #define MQTT_DEV_ID_DEV "MQTT_DEV_ID_DEV"
-  #define MQTT_DEV_USER_2 "MQTT_DEV_USER_2"
-  #define MQTT_DEV_PASS_2 "MQTT_DEV_PASS_2"
+#define SSID "SSID"
+#define SSID_CRED "SSID_CRED"
+#define MQTT_DEV_ID_DEV "MQTT_DEV_ID_DEV"
+#define MQTT_DEV_USER_2 "MQTT_DEV_USER_2"
+#define MQTT_DEV_PASS_2 "MQTT_DEV_PASS_2"
 #else
-  #include "/home/ctl/untracked/mqtt-cred.h"
-  #include "/home/ctl/untracked/wifi-cred.h"
+#include "/home/ctl/untracked/mqtt-cred.h"
+#include "/home/ctl/untracked/wifi-cred.h"
 #endif
 
 #include "NTP.h"  // sstaub/NTP@^1.6
@@ -32,6 +32,8 @@
 #define LED_RED 16
 #define LED_GREEN 17
 #define LED_BLUE 18
+
+#define SETUP_MODE_PIN 23  // Pull low on startup to enter setup.
 
 // Successful MQTT is our watchdog keepalive signal. This also means
 // if our MQTT broker is down we'll reboot loop, so with that in mind the
@@ -66,6 +68,43 @@ struct MqttPacket {
   int64_t version = 0;
 };
 
+// Holds the current configuration for the device.
+
+struct Config {
+  struct Wifi {
+    const char *ssid;
+    const char *password;
+  };
+
+  struct Ntp {
+    const char *server;
+  };
+
+  struct Mqtt {
+    const char *broker;
+    int port;
+    const char *user;
+    const char *password;
+    const char *device_id;
+    const char *topic;
+  };
+
+  struct Schedule {
+    // Note: seconds start from 0 on day starting at 0:00 UTC.
+    struct Interval {
+      int start_sec;
+      int end_sec;
+    };
+    Interval intervals[10];  // Example: up to 10 intervals
+    int interval_count;
+  };
+
+  Wifi wifi;
+  Ntp ntp;
+  Mqtt mqtt;
+  Schedule schedule;
+};
+
 void WatchdogStart(int reset_timeout_s) {
   // Configure to exevute panic = restart on timeout.
   esp_task_wdt_init(reset_timeout_s, /*panic=*/true);
@@ -74,9 +113,7 @@ void WatchdogStart(int reset_timeout_s) {
 
 void WatchdogImAlive() { esp_task_wdt_reset(); }
 
-int64_t ConnectWifi(bool &wifi_ok) {
-  static const char ssid[] = SSID;
-  static const char password[] = SSID_CRED;
+int64_t ConnectWifi(const Config::Wifi &wifi_config, bool &wifi_ok) {
   static bool connect_announce = true;
   wifi_ok = WiFi.status() == WL_CONNECTED;
   if (wifi_ok) {
@@ -90,11 +127,11 @@ int64_t ConnectWifi(bool &wifi_ok) {
   }
 
   connect_announce = true;
-  Serial.printf("Try connecting to %s MAC %s state %d\n", ssid,
+  Serial.printf("Try connecting to %s MAC %s state %d\n", wifi_config.ssid,
                 WiFi.macAddress().c_str(), WiFi.status());
 
   WiFi.disconnect();
-  WiFi.begin(ssid, password);
+  WiFi.begin(wifi_config.ssid, wifi_config.password);
 
   return 3000;  // Retry time
 }
@@ -118,13 +155,13 @@ int64_t BestMicros(const SysTime &sys_time) {
   return (micros() - sys_time.micros_at_best_time) + sys_time.best_time;
 }
 
-int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok,
-                   SysTime &sys_time, ESP32Time *rtc) {
+int64_t ConnectNtp(const Config::Ntp &ntp_config, const StateFlags &state_flags,
+                   bool &ntp_ok, SysTime &sys_time, ESP32Time *rtc) {
   static WiFiUDP wifiUdp;
   static NTP ntp(wifiUdp);
   if (state_flags.wifi_ok && !ntp_ok) {
     Serial.println("NTP connect attempt ");
-    ntp.begin();
+    ntp.begin(ntp_config.server);
     ntp_ok = true;
     return 1000;
   } else if (!state_flags.wifi_ok) {
@@ -148,22 +185,16 @@ int64_t ConnectNtp(const StateFlags &state_flags, bool &ntp_ok,
   }
 }
 
-int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
+int64_t UpdateMqtt(const Config::Mqtt &mqtt_config,
+                   const StateFlags &state_flags, bool &mqtt_ok,
                    const MqttPacket &packet) {
-  static const char brokerAddress[] =
-      "broker.losant.com";  // "146.148.110.247";
-  static const uint16_t brokerPort = 1883;
-  static const char devId[] = MQTT_DEV_ID_DEV;
-  static const char topic[] = "losant/" MQTT_DEV_ID_DEV "/state";
-  static const char devUser[] = MQTT_DEV_USER_2;
-  static const char devPass[] = MQTT_DEV_PASS_2;
   static bool connect_announce = true;
   static int is_connected_polls_left = 0;
   static int publish_failure_count = 0;
   static int64_t sent_version = 0;
 
   static WiFiClient wifiClient;
-  static PubSubClient client(brokerAddress, 1883, wifiClient);
+  static PubSubClient client(mqtt_config.broker, mqtt_config.port, wifiClient);
   static char message[2048];  // TODO: send buffer in client is 256
 
   if (packet.version <= sent_version) {
@@ -182,7 +213,8 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
                   sent_version, packet.version);
     client.disconnect();  // Just to be sure
     client.setKeepAlive(MQTT_KEEPALIVE_SEC);
-    client.connect(devId, devUser, devPass);
+    client.connect(mqtt_config.device_id, mqtt_config.user,
+                   mqtt_config.password);
     client.setBufferSize(512);
     is_connected_polls_left = 100;
     return 500;
@@ -217,7 +249,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
   })",
                packet.version, packet.tank_pressure, packet.sec_to_next_pump,
                packet.rtc_offset_post_init);
-      success = client.publish(topic, message);
+      success = client.publish(mqtt_config.topic, message);
     } else {
       Serial.printf("MQTT FAKE sending %lld\n", packet.version);
       success = true;
@@ -225,7 +257,7 @@ int64_t UpdateMqtt(const StateFlags &state_flags, bool &mqtt_ok,
     sent_version = packet.version;
     publish_failure_count = success ? 0 : publish_failure_count + 1;
     if (publish_failure_count > 10) {
-      Serial.printf("MQTT seubsequent publish failures\n");
+      Serial.printf("MQTT subsequent publish failures\n");
       publish_failure_count = 0;
       is_connected_polls_left = 0;
       mqtt_ok = false;
@@ -328,32 +360,32 @@ constexpr int HMS(int h, int m, int s) {
   return ((h + 24) % 24) * 3600 + ((m + 60) % 60) * 60 + ((s + 60) % 60);
 };
 
-int64_t PumpControl(bool &state_pumping, const SysTime &sys_time,
-                    MqttPacket &mqtt_packet) {
-  struct ActiveInterval {
-    int start_sec;
-    int end_sec;
-  };
+int64_t PumpControl(const Config::Schedule &schedule, bool &state_pumping,
+                    const SysTime &sys_time, MqttPacket &mqtt_packet) {
+  // struct ActiveInterval {
+  //   int start_sec;
+  //   int end_sec;
+  // };
 
-  // ZZZZZ
-  const int h = 9 - 3;
-  const int m = 40;
-  static const std::vector<ActiveInterval> schedule{
-      {HMS(21 - 3, 0, 0), HMS(21 - 3, 1, 30)},
-      {HMS(8 - 3, 0, 0), HMS(8 - 3, 1, 0)},
+  // // ZZZZZ
+  // const int h = 9 - 3;
+  // const int m = 40;
+  // static const std::vector<ActiveInterval> schedule{
+  //     {HMS(21 - 3, 0, 0), HMS(21 - 3, 1, 30)},
+  //     {HMS(8 - 3, 0, 0), HMS(8 - 3, 1, 0)},
 
-      /// ZZZZZ
-      // {HMS(h, m + 1, 0), HMS(h, m + 1, 10)},
-      // {HMS(h, m + 2, 0), HMS(h, m + 2, 10)},
-      // {HMS(h, m + 3, 0), HMS(h, m + 3, 10)},
-      // {HMS(h, m + 4, 0), HMS(h, m + 4, 10)},
-      // {HMS(h, m + 5, 0), HMS(h, m + 5, 10)},
-      // {HMS(h, m + 6, 0), HMS(h, m + 6, 10)},
-      // {HMS(h, m + 7, 0), HMS(h, m + 7, 10)},
-      // {HMS(h, m + 8, 0), HMS(h, m + 8, 10)},
-      // {HMS(h, m + 9, 0), HMS(h, m + 9, 10)},
+  //     /// ZZZZZ
+  //     // {HMS(h, m + 1, 0), HMS(h, m + 1, 10)},
+  //     // {HMS(h, m + 2, 0), HMS(h, m + 2, 10)},
+  //     // {HMS(h, m + 3, 0), HMS(h, m + 3, 10)},
+  //     // {HMS(h, m + 4, 0), HMS(h, m + 4, 10)},
+  //     // {HMS(h, m + 5, 0), HMS(h, m + 5, 10)},
+  //     // {HMS(h, m + 6, 0), HMS(h, m + 6, 10)},
+  //     // {HMS(h, m + 7, 0), HMS(h, m + 7, 10)},
+  //     // {HMS(h, m + 8, 0), HMS(h, m + 8, 10)},
+  //     // {HMS(h, m + 9, 0), HMS(h, m + 9, 10)},
 
-  };
+  // };
 
   time_t best_time_s = BestMicros(sys_time) / 1000000LL;
   tm *dt = gmtime(&best_time_s);
@@ -362,7 +394,8 @@ int64_t PumpControl(bool &state_pumping, const SysTime &sys_time,
 
   int min_next_s = 100000;
   bool active = false;
-  for (const ActiveInterval &i : schedule) {
+  for (int i_index = 0; i_index < schedule.interval_count; i_index++) {
+    const Config::Schedule::Interval &i = schedule.intervals[i_index];
     // Are we in the interval with ascending start to end ?
     bool in_asc_interval = std::min(i.start_sec, i.end_sec) <= time_of_day_s &&
                            time_of_day_s < std::max(i.start_sec, i.end_sec);
@@ -408,6 +441,7 @@ void setup() {
   pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
+  pinMode(SETUP_MODE_PIN, INPUT_PULLUP);
 
   Serial.begin(115200);
 
@@ -415,10 +449,12 @@ void setup() {
 }
 
 void loop() {
-  #ifdef SETUP_MODE
-  SetupUI setup_ui;
-  setup_ui.run();
-  #endif
+  if (digitalRead(SETUP_MODE_PIN) == LOW) {
+    Serial.println("Entering setup mode...");
+    SetupUI setup_ui;
+    setup_ui.run();
+    return;  // Exit loop to prevent further execution in setup mode
+  }
 
   static StateFlags state_flags;
   static SysTime sys_time;
@@ -439,6 +475,8 @@ void loop() {
   int64_t epoch_ms = rtc.getEpoch() * 1000L + rtc.getMillis();
   int64_t next_epoch_ms = epoch_ms + MAX_SLEEP_MS;
 
+  Config config;
+
   auto dispatch = [&](int64_t &next_ms, std::function<int64_t()> fn) {
     next_ms = std::max(next_ms, epoch_ms - MAX_BACKLOG_MS);
     if (epoch_ms > next_ms) {
@@ -448,22 +486,23 @@ void loop() {
   };
 
   dispatch(next_calls_ms.leds, std::bind(UpdateLeds, std::cref(state_flags)));
-  dispatch(next_calls_ms.wifi,
-           std::bind(ConnectWifi, std::ref(state_flags.wifi_ok)));
+  dispatch(next_calls_ms.wifi, std::bind(ConnectWifi, std::cref(config.wifi),
+                                         std::ref(state_flags.wifi_ok)));
   dispatch(next_calls_ms.ntp,
-           std::bind(ConnectNtp, std::cref(state_flags),
+           std::bind(ConnectNtp, std::cref(config.ntp), std::cref(state_flags),
                      std::ref(state_flags.ntp_ok), std::ref(sys_time), &rtc));
   dispatch(next_calls_ms.timekeeper,
            std::bind(TimeKeeper, std::cref(state_flags), std::ref(sys_time),
                      std::ref(mqtt_packet), &rtc));
   dispatch(next_calls_ms.mqtt,
-           std::bind(UpdateMqtt, std::cref(state_flags),
+           std::bind(UpdateMqtt, std::cref(config.mqtt), std::cref(state_flags),
                      std::ref(state_flags.mqtt_ok), std::cref(mqtt_packet)));
   dispatch(next_calls_ms.read_pressure,
            std::bind(ReadTankPressure, std::ref(mqtt_packet)));
   dispatch(next_calls_ms.pump_control,
-           std::bind(PumpControl, std::ref(state_flags.pumping),
-                     std::cref(sys_time), std::ref(mqtt_packet)));
+           std::bind(PumpControl, std::cref(config.schedule),
+                     std::ref(state_flags.pumping), std::cref(sys_time),
+                     std::ref(mqtt_packet)));
 
   dispatch(next_calls_ms.serial,
            std::bind(UpdateSerial, std::cref(sys_time), &rtc));
