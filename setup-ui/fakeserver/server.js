@@ -38,6 +38,12 @@ app.post('/api/save-settings', (req, res) => {
   res.sendStatus(200);
 });
 
+app.post('/api/reboot', (req, res) => {
+  console.log("Aieee....", req.body);
+  userSavedSettings = undefined;
+  res.sendStatus(200);
+});
+
 app.listen(port, () => {
   console.log(`Backend is running at http://localhost:${port}`);
 });
