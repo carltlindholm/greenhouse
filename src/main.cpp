@@ -5,23 +5,10 @@
 #include <WiFi.h>
 #include <esp_task_wdt.h>
 #include <time.h>
-
 #include <vector>
 
 #include "setup_ui.h"
-
-#define SETUP_MODE 1
-
-#ifdef SETUP_MODE
-#define SSID "SSID"
-#define SSID_CRED "SSID_CRED"
-#define MQTT_DEV_ID_DEV "MQTT_DEV_ID_DEV"
-#define MQTT_DEV_USER_2 "MQTT_DEV_USER_2"
-#define MQTT_DEV_PASS_2 "MQTT_DEV_PASS_2"
-#else
-#include "/home/ctl/untracked/mqtt-cred.h"
-#include "/home/ctl/untracked/wifi-cred.h"
-#endif
+#include "config.h"
 
 #include "NTP.h"  // sstaub/NTP@^1.6
 
@@ -66,43 +53,6 @@ struct MqttPacket {
 
   // Increment when data send is requested (some changes do not trigger).
   int64_t version = 0;
-};
-
-// Holds the current configuration for the device.
-
-struct Config {
-  struct Wifi {
-    const char *ssid;
-    const char *password;
-  };
-
-  struct Ntp {
-    const char *server;
-  };
-
-  struct Mqtt {
-    const char *broker;
-    int port;
-    const char *user;
-    const char *password;
-    const char *device_id;
-    const char *topic;
-  };
-
-  struct Schedule {
-    // Note: seconds start from 0 on day starting at 0:00 UTC.
-    struct Interval {
-      int start_sec;
-      int end_sec;
-    };
-    Interval intervals[10];  // Example: up to 10 intervals
-    int interval_count;
-  };
-
-  Wifi wifi;
-  Ntp ntp;
-  Mqtt mqtt;
-  Schedule schedule;
 };
 
 void WatchdogStart(int reset_timeout_s) {
@@ -356,41 +306,13 @@ int64_t TimeKeeper(const StateFlags &state_flags, SysTime &sys_time,
   return 5000;  // ZZZ more in final.
 }
 
-constexpr int HMS(int h, int m, int s) {
-  return ((h + 24) % 24) * 3600 + ((m + 60) % 60) * 60 + ((s + 60) % 60);
-};
-
 int64_t PumpControl(const Config::Schedule &schedule, bool &state_pumping,
                     const SysTime &sys_time, MqttPacket &mqtt_packet) {
-  // struct ActiveInterval {
-  //   int start_sec;
-  //   int end_sec;
-  // };
-
-  // // ZZZZZ
-  // const int h = 9 - 3;
-  // const int m = 40;
-  // static const std::vector<ActiveInterval> schedule{
-  //     {HMS(21 - 3, 0, 0), HMS(21 - 3, 1, 30)},
-  //     {HMS(8 - 3, 0, 0), HMS(8 - 3, 1, 0)},
-
-  //     /// ZZZZZ
-  //     // {HMS(h, m + 1, 0), HMS(h, m + 1, 10)},
-  //     // {HMS(h, m + 2, 0), HMS(h, m + 2, 10)},
-  //     // {HMS(h, m + 3, 0), HMS(h, m + 3, 10)},
-  //     // {HMS(h, m + 4, 0), HMS(h, m + 4, 10)},
-  //     // {HMS(h, m + 5, 0), HMS(h, m + 5, 10)},
-  //     // {HMS(h, m + 6, 0), HMS(h, m + 6, 10)},
-  //     // {HMS(h, m + 7, 0), HMS(h, m + 7, 10)},
-  //     // {HMS(h, m + 8, 0), HMS(h, m + 8, 10)},
-  //     // {HMS(h, m + 9, 0), HMS(h, m + 9, 10)},
-
-  // };
-
   time_t best_time_s = BestMicros(sys_time) / 1000000LL;
   tm *dt = gmtime(&best_time_s);
 
-  int time_of_day_s = HMS(dt->tm_hour, dt->tm_min, dt->tm_sec);
+  int time_of_day_s =
+      Config::SafeHMSToSecondOfUtcDay(dt->tm_hour, dt->tm_min, dt->tm_sec);
 
   int min_next_s = 100000;
   bool active = false;
@@ -456,6 +378,14 @@ void loop() {
     return;  // Exit loop to prevent further execution in setup mode
   }
 
+  static std::unique_ptr<Config> config = Config::CreateFromJsonFile("/config.json");
+  if (!config) {
+    Serial.println("Configuration not loaded. Exiting loop.");
+    return;
+  } else {
+    config->PrintConfigOnSerial();
+  }
+
   static StateFlags state_flags;
   static SysTime sys_time;
   static struct {
@@ -475,8 +405,6 @@ void loop() {
   int64_t epoch_ms = rtc.getEpoch() * 1000L + rtc.getMillis();
   int64_t next_epoch_ms = epoch_ms + MAX_SLEEP_MS;
 
-  Config config;
-
   auto dispatch = [&](int64_t &next_ms, std::function<int64_t()> fn) {
     next_ms = std::max(next_ms, epoch_ms - MAX_BACKLOG_MS);
     if (epoch_ms > next_ms) {
@@ -486,21 +414,21 @@ void loop() {
   };
 
   dispatch(next_calls_ms.leds, std::bind(UpdateLeds, std::cref(state_flags)));
-  dispatch(next_calls_ms.wifi, std::bind(ConnectWifi, std::cref(config.wifi),
+  dispatch(next_calls_ms.wifi, std::bind(ConnectWifi, std::cref(config->wifi),
                                          std::ref(state_flags.wifi_ok)));
   dispatch(next_calls_ms.ntp,
-           std::bind(ConnectNtp, std::cref(config.ntp), std::cref(state_flags),
+           std::bind(ConnectNtp, std::cref(config->ntp), std::cref(state_flags),
                      std::ref(state_flags.ntp_ok), std::ref(sys_time), &rtc));
   dispatch(next_calls_ms.timekeeper,
            std::bind(TimeKeeper, std::cref(state_flags), std::ref(sys_time),
                      std::ref(mqtt_packet), &rtc));
   dispatch(next_calls_ms.mqtt,
-           std::bind(UpdateMqtt, std::cref(config.mqtt), std::cref(state_flags),
+           std::bind(UpdateMqtt, std::cref(config->mqtt), std::cref(state_flags),
                      std::ref(state_flags.mqtt_ok), std::cref(mqtt_packet)));
   dispatch(next_calls_ms.read_pressure,
            std::bind(ReadTankPressure, std::ref(mqtt_packet)));
   dispatch(next_calls_ms.pump_control,
-           std::bind(PumpControl, std::cref(config.schedule),
+           std::bind(PumpControl, std::cref(config->schedule),
                      std::ref(state_flags.pumping), std::cref(sys_time),
                      std::ref(mqtt_packet)));
 
