@@ -357,6 +357,8 @@ int64_t UpdateSerial(const SysTime &sys_time, ESP32Time *rtc) {
   return 5000L;
 }
 
+static std::unique_ptr<Config> config(nullptr);
+
 void setup() {
   pinMode(PUMP_CONTROL, OUTPUT);
   pinMode(PUMP_CONTROL_2, OUTPUT);
@@ -368,6 +370,13 @@ void setup() {
   Serial.begin(115200);
 
   WatchdogStart(WATCHDOG_TIMEOUT_S);
+
+  config = Config::CreateFromJsonFile("/config.json");
+  if (!config) {
+    Serial.println("Configuration not loaded. :/");
+  } else {
+    config->PrintConfigOnSerial();
+  }
 }
 
 void loop() {
@@ -378,12 +387,10 @@ void loop() {
     return;  // Exit loop to prevent further execution in setup mode
   }
 
-  static std::unique_ptr<Config> config = Config::CreateFromJsonFile("/config.json");
   if (!config) {
-    Serial.println("Configuration not loaded. Exiting loop.");
-    return;
-  } else {
-    config->PrintConfigOnSerial();
+    Serial.println("No config, resetting in 5 :/");
+    sleep(5000);
+    ESP.restart();
   }
 
   static StateFlags state_flags;

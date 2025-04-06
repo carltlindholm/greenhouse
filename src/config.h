@@ -8,6 +8,9 @@ class Config {
   static constexpr int kMaxIntervals = 20;          // Maximum number of pump intervals
 
   Config() = default;
+  Config(const Config&) = delete;
+  Config(Config&&) = delete;
+  
   friend std::unique_ptr<Config> std::make_unique<Config>();
  public:
   // Converts hour, minute, and second to seconds since the start of the UTC day.

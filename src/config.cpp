@@ -29,7 +29,7 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
     return nullptr;
   }
 
-  size_t size = configFile.size();
+  size_t size = configFile.size() + 1;
   if (size == 0) {
     Serial.println("Config file is empty");
     return nullptr;
@@ -37,6 +37,7 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
 
   std::unique_ptr<char[]> buffer(new char[size]);
   configFile.readBytes(buffer.get(), size);
+  buffer[size - 1] = '\0';  // Null-terminate the string
   configFile.close();
 
   auto config = std::make_unique<Config>();
