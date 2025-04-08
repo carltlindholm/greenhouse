@@ -56,7 +56,5 @@ class Config {
   Mqtt mqtt;
   Schedule schedule;
  private:
-  // Static JSON document to hold the parsed configuration, the config struct 
-  // strings point into this so must not be destroyed while object is alive.
-  DynamicJsonDocument jsonDoc{kMaxJsonSize};
+  String string_table;  // String table for storing interned strings of the config.
 };

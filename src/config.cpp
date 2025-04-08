@@ -5,11 +5,42 @@
 #include <SPIFFS.h>
 #include <bits/unique_ptr.h>
 
+#include <cstring>
+
 namespace {
 
 // Clock arithmetic mod (negative values are wrapped around)
 // e.g. -1 % 24 = 23
 constexpr int SafeMod(int value, int mod) { return (value % mod + mod) % mod; }
+
+size_t SumStringStorageLengths(const JsonVariant v) {
+  if (v.is<const char *>()) {
+    const char *str = v.as<const char *>();
+    return str ? strlen(str) + 1 : 0;  // Safely handle null strings
+  } else if (v.is<JsonObject>() || v.is<JsonArray>()) {
+    size_t totalStringLength = 0;
+    for (JsonPair item :
+         v.as<JsonObject>()) {  // Works for both objects and arrays
+      totalStringLength += SumStringStorageLengths(item.value());
+    }
+    return totalStringLength;
+  }
+  // Ignore non-string scalar types (e.g., integers, floats, booleans)
+  return 0;
+}
+char const *Intern(const char *str, String &string_table) {
+  char const *found = static_cast<char const *>(memmem(
+      string_table.c_str(), string_table.length() + 1, str, strlen(str) + 1));
+  if (found) {
+    return found;  // Return existing position if string is already in the table
+  }
+  if (string_table.length()) {
+    string_table.concat('\0');  // Ensure null-terminated before next
+  }
+  found = string_table.c_str() + string_table.length();
+  string_table.concat(str);
+  return found;
+};
 
 }  // namespace
 
@@ -35,42 +66,59 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
     return nullptr;
   }
 
-  std::unique_ptr<char[]> buffer(new char[size]);
-  configFile.readBytes(buffer.get(), size);
-  buffer[size - 1] = '\0';  // Null-terminate the string
-  configFile.close();
-
   auto config = std::make_unique<Config>();
-  DeserializationError error = deserializeJson(config->jsonDoc, buffer.get());
-  if (error) {
-    Serial.printf("Failed to parse config file: %s\n", error.c_str());
-    return nullptr;
+  // Static JSON document to hold the parsed configuration, the config struct
+  // strings point into this so must not be destroyed while object is alive.
+  DynamicJsonDocument jsonDoc{kMaxJsonSize};
+
+  {
+    std::unique_ptr<char[]> buffer(new char[size]);
+    configFile.readBytes(buffer.get(), size);
+    buffer[size - 1] = '\0';  // Null-terminate the string
+    configFile.close();
+
+    DeserializationError error = deserializeJson(jsonDoc, buffer.get());
+    if (error) {
+      Serial.printf("Failed to parse config file: %s\n", error.c_str());
+      return nullptr;
+    }
+    // Free parse buffer.
   }
 
-  auto &jsonDoc = config->jsonDoc;
+  // Walk through jsonDoc and sum up the length of all strings
+  size_t totalStringLength =
+      SumStringStorageLengths(jsonDoc.as<JsonVariant>()) +
+      32;  // Magic number for builtin constants like "pool.ntp.org"
+  Serial.printf("Sum of string lengths in JSON: %zu\n", totalStringLength);
+
+  config->string_table.reserve(totalStringLength);
+
+  auto intern = [&](const char *str) {
+    return Intern(str, config->string_table);
+  };
 
   // Parse WiFi configuration
   JsonObject wifi = jsonDoc["wifi"];
   if (!wifi.isNull()) {
-    config->wifi.ssid = wifi["ssid"] | "";
-    config->wifi.password = wifi["password"] | "";
+    config->wifi.ssid = intern(wifi["ssid"] | "");
+    config->wifi.password = intern(wifi["password"] | "");
   }
 
   // Parse NTP configuration
   JsonObject ntp = jsonDoc["ntp"];
   if (!ntp.isNull()) {
-    config->ntp.server = ntp["server"] | "pool.ntp.org";
+    config->ntp.server = intern(ntp["server"] | "pool.ntp.org");
   }
 
   // Parse MQTT configuration
   JsonObject mqtt = jsonDoc["mqtt"];
   if (!mqtt.isNull()) {
-    config->mqtt.broker = mqtt["broker"] | "";
+    config->mqtt.broker = intern(mqtt["broker"] | "");
     config->mqtt.port = mqtt["port"] | 1883;
-    config->mqtt.user = mqtt["user"] | "";
-    config->mqtt.password = mqtt["password"] | "";
-    config->mqtt.device_id = mqtt["device_id"] | "";
-    config->mqtt.topic = mqtt["topic"] | "";
+    config->mqtt.user = intern(mqtt["user"] | "");
+    config->mqtt.password = intern(mqtt["password"] | "");
+    config->mqtt.device_id = intern(mqtt["device_id"] | "");
+    config->mqtt.topic = intern(mqtt["topic"] | "");
   }
 
   // Parse pump schedule
@@ -100,6 +148,14 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
       }
     }
   }
+  Serial.printf("Use of string table: %zu\n", config->string_table.length());
+  if (totalStringLength < config->string_table.length()) {
+    // How did this happen...?
+    Serial.println(
+        "String table grew, so pointers may be invalid, reboot in 10");
+    delay(10000);
+    ESP.restart();
+  }
 
   return config;
 }
@@ -108,7 +164,8 @@ void Config::PrintConfigOnSerial() const {
   Serial.println("** Configuration **");
   Serial.println("wifi");
   Serial.printf("  ssid = %s\n", wifi.ssid ? wifi.ssid : "(not set)");
-  Serial.printf("  password = %s\n", wifi.password ? wifi.password : "(not set)");
+  Serial.printf("  password = %s\n",
+                wifi.password ? wifi.password : "(not set)");
 
   Serial.println("ntp");
   Serial.printf("  server = %s\n", ntp.server ? ntp.server : "(not set)");
@@ -117,8 +174,10 @@ void Config::PrintConfigOnSerial() const {
   Serial.printf("  broker = %s\n", mqtt.broker ? mqtt.broker : "(not set)");
   Serial.printf("  port = %d\n", mqtt.port);
   Serial.printf("  user = %s\n", mqtt.user ? mqtt.user : "(not set)");
-  Serial.printf("  password = %s\n", mqtt.password ? mqtt.password : "(not set)");
-  Serial.printf("  device_id = %s\n", mqtt.device_id ? mqtt.device_id : "(not set)");
+  Serial.printf("  password = %s\n",
+                mqtt.password ? mqtt.password : "(not set)");
+  Serial.printf("  device_id = %s\n",
+                mqtt.device_id ? mqtt.device_id : "(not set)");
   Serial.printf("  topic = %s\n", mqtt.topic ? mqtt.topic : "(not set)");
 
   Serial.println("schedule");
