@@ -1,7 +1,7 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { Tab, Tabs, Button } from 'react-bootstrap';
 import { SettingsContext, createSettings } from './settings-context';
-import { useContext, useEffect } from 'preact/hooks';
+import { useContext, useEffect, useState } from 'preact/hooks';
 import { WifiSettings } from './wifi-settings-card';
 import { NtpSettings } from './ntp-settings-card';
 import { MqttSettingsCard } from './mqtt-settings-card';
@@ -19,12 +19,34 @@ const SettingsDebug = () => {
 
 export function GreenhouseSettingsApp() {
   const [globalSettings, setSettings] = createSettings();
+  const [hasEdits, setHasEdits] = useState(false);
+  const [loadedStateJson, setLoadedStateJson] = useState('');
+
+  useEffect(() => {
+    loadSettings();  // Initial data load
+  }, []);
+
+  useEffect(() => {
+    // Check for changes in settings every 250ms.
+    // I never got the useEffect to properly unset edits on load
+    // but on the other hand, this also works if you go back to the
+    // initial state with an edit.
+    const timer = setTimeout(() => {
+      console.log('Check for edits');
+      const newHasEdits = JSON.stringify(globalSettings) !== loadedStateJson;
+      if (hasEdits !== newHasEdits) {
+        setHasEdits(newHasEdits);
+      }
+    }, 250);
+    return () => { clearTimeout(timer); };
+  }, [globalSettings]);
 
   const loadSettings = async () => {
     const response = await fetch('/api/settings');
     if (response.ok) {
       const data = await response.json();
-      setSettings(data);  // Update settings in context
+      setLoadedStateJson(JSON.stringify(data)); // Save loaded state
+      setSettings(data);  // Update settings in context      
     }
   };
 
@@ -39,9 +61,14 @@ export function GreenhouseSettingsApp() {
     }
   };
 
-  useEffect(() => {
-    loadSettings();  // Initial data load
-  }, []);
+  const restartEsp = async () => {
+    const response = await fetch('/api/reboot', {
+      method: 'POST',
+    });
+    if (!response.ok) {
+      alert('Failed to restart. Please try again.');
+    }
+  };
 
   return (
     <>
@@ -74,7 +101,13 @@ export function GreenhouseSettingsApp() {
           </Tabs>
           {/*  Bottom action bar  */}
           <div className="bg-dark text-white p-3 text-center">
-            <Button className="mx-2" onClick={saveSettings}>Save</Button>
+            <Button
+              className="mx-2"
+              onClick={saveSettings}
+              disabled={!hasEdits}
+            >
+              Save
+            </Button>
             <Button
               variant="secondary"
               className="mx-2"
@@ -82,7 +115,13 @@ export function GreenhouseSettingsApp() {
             >
               Reload Saved
             </Button>
-            <Button variant="danger" className="mx-2">Reboot</Button>
+            <Button 
+              className="mx-2"
+              onClick={restartEsp}
+              disabled={hasEdits}
+            >
+              Restart
+            </Button>
           </div>
         </div>
         <SettingsDebug />
