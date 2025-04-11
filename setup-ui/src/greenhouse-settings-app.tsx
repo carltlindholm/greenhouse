@@ -32,7 +32,6 @@ export function GreenhouseSettingsApp() {
     // but on the other hand, this also works if you go back to the
     // initial state with an edit.
     const timer = setTimeout(() => {
-      console.log('Check for edits');
       const newHasEdits = JSON.stringify(globalSettings) !== loadedStateJson;
       if (hasEdits !== newHasEdits) {
         setHasEdits(newHasEdits);
@@ -51,13 +50,17 @@ export function GreenhouseSettingsApp() {
   };
 
   const saveSettings = async () => {
+    const newData = JSON.stringify(globalSettings) 
     const response = await fetch('/api/save-settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(globalSettings),
+      body: newData,
     });
     if (!response.ok) {
       alert('Failed to save settings. Please try again.');
+    } else {
+      setLoadedStateJson(newData);
+      setHasEdits(false); // Reset edit state
     }
   };
 
