@@ -35,6 +35,7 @@ void RunWebServer() {
       String settings = file.readString();
       file.close();
       server.send(200, "application/json", settings);
+      Serial.println("Responded with configs loaded from file.");
     } else {
       server.send(200, "application/json", R"({
         "wifi": {
@@ -49,6 +50,7 @@ void RunWebServer() {
           "port": 1883,
           "user": "",
           "password": "",
+          "device_id": "",
           "topic": ""
         },
         "pumpSchedule": {
@@ -56,6 +58,7 @@ void RunWebServer() {
           "utcOffset": 3
         }
       })");
+      Serial.println("Responded with empty config (no file?).");
     }
   });
 
@@ -64,18 +67,22 @@ void RunWebServer() {
       String body = server.arg(kPostBodyArgName);
       File file = SPIFFS.open("/config.json", "w");
       if (file) {
+        Serial.println("Saving settings...");
         file.print(body);
         file.close();
         server.send(200, "text/plain", "Settings saved");
+        Serial.println("Settings saved successfully");
       } else {
         server.send(500, "text/plain", "Failed to save settings");
       }
     } else {
       server.send(400, "text/plain", "Bad Request");
+      Serial.println("FAILED to save settings");
     }
   });
 
   server.on("/api/reboot", HTTP_POST, [&]() {
+    Serial.println("Reboot requested!");
     server.send(200, "text/plain", "Rebooting...");
     delay(1000);
     ESP.restart();

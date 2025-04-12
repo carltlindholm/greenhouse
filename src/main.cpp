@@ -371,6 +371,13 @@ void setup() {
 
   WatchdogStart(WATCHDOG_TIMEOUT_S);
 
+  if (digitalRead(SETUP_MODE_PIN) == LOW) {
+    Serial.println("Entering setup mode...");
+    SetupUI setup_ui;
+    setup_ui.run();
+    return;  // Exit loop to prevent further execution in setup mode
+  }
+
   config = Config::CreateFromJsonFile("/config.json");
   if (!config) {
     Serial.println("Configuration not loaded. :/");
@@ -380,13 +387,6 @@ void setup() {
 }
 
 void loop() {
-  if (digitalRead(SETUP_MODE_PIN) == LOW) {
-    Serial.println("Entering setup mode...");
-    SetupUI setup_ui;
-    setup_ui.run();
-    return;  // Exit loop to prevent further execution in setup mode
-  }
-
   if (!config) {
     Serial.println("No config, resetting in 5 :/");
     sleep(5000);

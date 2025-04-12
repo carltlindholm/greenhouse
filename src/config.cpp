@@ -156,7 +156,11 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
     delay(10000);
     ESP.restart();
   }
-
+  // for (const char ch : config->string_table) {
+  //   Serial.print(ch == 0 ? '|' : ch);
+  // }
+  // Serial.println();
+  
   return config;
 }
 
