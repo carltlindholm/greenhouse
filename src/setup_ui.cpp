@@ -50,7 +50,7 @@ void RunWebServer() {
           "port": 1883,
           "user": "",
           "password": "",
-          "device_id": "",
+          "deviceId": "",
           "topic": ""
         },
         "pumpSchedule": {

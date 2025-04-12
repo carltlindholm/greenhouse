@@ -4,7 +4,6 @@
 // Holds the current configuration for the device.
 class Config {
  private:
-  static constexpr size_t kMaxJsonSize = 64 * 1024;  // 64k constant
   static constexpr int kMaxIntervals = 20;          // Maximum number of pump intervals
 
   Config() = default;
@@ -57,4 +56,5 @@ class Config {
   Schedule schedule;
  private:
   String string_table;  // String table for storing interned strings of the config.
+  int utc_offset;  // UTC offset in hours
 };

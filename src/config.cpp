@@ -69,7 +69,7 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
   auto config = std::make_unique<Config>();
   // Static JSON document to hold the parsed configuration, the config struct
   // strings point into this so must not be destroyed while object is alive.
-  DynamicJsonDocument jsonDoc{kMaxJsonSize};
+  JsonDocument jsonDoc;
 
   {
     std::unique_ptr<char[]> buffer(new char[size]);
@@ -117,7 +117,7 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
     config->mqtt.port = mqtt["port"] | 1883;
     config->mqtt.user = intern(mqtt["user"] | "");
     config->mqtt.password = intern(mqtt["password"] | "");
-    config->mqtt.device_id = intern(mqtt["device_id"] | "");
+    config->mqtt.device_id = intern(mqtt["deviceId"] | "");
     config->mqtt.topic = intern(mqtt["topic"] | "");
   }
 
@@ -126,8 +126,9 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
   if (!pumpSchedule.isNull()) {
     config->schedule.interval_count = 0;
 
-    const int utcOffset =
+    config->utc_offset =
         pumpSchedule["utcOffset"] | 0;  // Default to 0 if missing
+    
     JsonArray pump = pumpSchedule["pump"];
     for (JsonObject interval : pump) {
       if (config->schedule.interval_count >= Config::kMaxIntervals) {
@@ -140,10 +141,10 @@ std::unique_ptr<Config> Config::CreateFromJsonFile(const char file[]) {
       const JsonObject end = interval["end"];
       if (!start.isNull() && !end.isNull()) {
         currentInterval.start_sec = Config::SafeHMSToSecondOfUtcDay(
-            (start["hour"] | 0) - utcOffset, start["minute"] | 0,
+            (start["hour"] | 0) - config->utc_offset, start["minute"] | 0,
             start["second"] | 0);
         currentInterval.end_sec = Config::SafeHMSToSecondOfUtcDay(
-            (end["hour"] | 0) - utcOffset, end["minute"] | 0,
+            (end["hour"] | 0) - config->utc_offset, end["minute"] | 0,
             end["second"] | 0);
       }
     }
@@ -192,5 +193,6 @@ void Config::PrintConfigOnSerial() const {
     Serial.printf("      start_sec = %d\n", interval.start_sec);
     Serial.printf("      end_sec = %d\n", interval.end_sec);
   }
+  Serial.printf("  utcOffset = %d\n", utc_offset);
   Serial.println("***");
 }

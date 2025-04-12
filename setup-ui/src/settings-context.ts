@@ -18,6 +18,7 @@ export interface MqttSettings {
   port: number; // Default: MQTT_PORT
   user: string;
   password: string;
+  deviceId: string;
   topic: string;
 }
 
@@ -53,7 +54,7 @@ interface SettingsContextType extends Settings {
 const INITIAL_SETTINGS: Settings = {
   wifi: { ssid: '', password: '' },
   ntp: { server: 'pool.ntp.org' },
-  mqtt: { broker: '', port: MQTT_PORT, user: '', password: '', topic: '' },
+  mqtt: { broker: '', port: MQTT_PORT, user: '', password: '', deviceId: '', topic: '' },
   pumpSchedule: { pump: [], utcOffset: UTC_OFFSET },
 };
 

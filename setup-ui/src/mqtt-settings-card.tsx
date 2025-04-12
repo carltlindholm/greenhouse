@@ -38,30 +38,39 @@ export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqt
     });
   };
 
+  const handleDeviceIdChange = (event: React.ChangeEvent<HTMLInputElement>) => {
+    setMqtt({
+      ...mqtt,
+      deviceId: event.currentTarget.value,
+    });
+  };
+
   return (
     <>
       <Card className="m-3">
         <Card.Body>
           <Card.Title>MQTT Settings</Card.Title>
           <Form>
-            <Form.Group className="mb-3">
-              <Form.Label>Broker</Form.Label>
-              <Form.Control
-                type="text"
-                placeholder="Broker address"
-                value={mqtt.broker}
-                onChange={handleBrokerChange}
-              />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Port</Form.Label>
-              <Form.Control
-                type="number"
-                placeholder="Port"
-                value={mqtt.port}
-                onChange={handlePortChange}
-              />
-            </Form.Group>
+            <div className="d-flex mb-3">
+              <Form.Group className="me-2 flex-fill">
+                <Form.Label>Broker</Form.Label>
+                <Form.Control
+                  type="text"
+                  placeholder="Broker address"
+                  value={mqtt.broker}
+                  onChange={handleBrokerChange}
+                />
+              </Form.Group>
+              <Form.Group className="flex-fill">
+                <Form.Label>Port</Form.Label>
+                <Form.Control
+                  type="number"
+                  placeholder="Port"
+                  value={mqtt.port}
+                  onChange={handlePortChange}
+                />
+              </Form.Group>
+            </div>
             <Form.Group className="mb-3">
               <Form.Label>User</Form.Label>
               <Form.Control
@@ -81,13 +90,25 @@ export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqt
               />
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Label>Topic</Form.Label>
+              <Form.Label>Device ID</Form.Label>
+              <Form.Control
+                type="text"
+                placeholder="Device ID"
+                value={mqtt.deviceId}
+                onChange={handleDeviceIdChange}
+              />
+            </Form.Group>
+            <Form.Group className="mb-3">
+              <Form.Label>Topic</Form.Label>              
               <Form.Control
                 type="text"
                 placeholder="Topic"
                 value={mqtt.topic}
                 onChange={handleTopicChange}
               />
+              <Form.Text className="text-muted">
+                Hint: losant/{'{device_id}'}/state
+              </Form.Text>
             </Form.Group>
           </Form>
         </Card.Body>
