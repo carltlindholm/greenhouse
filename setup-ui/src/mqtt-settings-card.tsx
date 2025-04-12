@@ -107,7 +107,7 @@ export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqt
                 onChange={handleTopicChange}
               />
               <Form.Text className="text-muted">
-                Hint: losant/{'{device_id}'}/state
+                Hint: losant/{mqtt.deviceId || '{device_id}'}/state
               </Form.Text>
             </Form.Group>
           </Form>
