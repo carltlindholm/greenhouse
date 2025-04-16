@@ -1,7 +1,7 @@
 import './pump-schedule-card.css';
 import { Card, Form, Button, Table } from 'react-bootstrap';
 import { PumpSchedule, ScheduledPumping, TriggerTime } from './settings-context';
-import { useEffect, useState } from 'react';
+import { useEffect, useState } from 'preact/hooks';
 
 const BAD_DURATION_SECONDS = 1200; // 20 minutes
 const WARNING_DURATION_SECONDS = 300; // 5 minutes

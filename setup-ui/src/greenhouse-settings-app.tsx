@@ -1,21 +1,12 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
 import { Tab, Tabs, Button, Modal } from 'react-bootstrap';
 import { SettingsContext, createSettings } from './settings-context';
-import { useContext, useEffect, useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { WifiSettings } from './wifi-settings-card';
 import { NtpSettings } from './ntp-settings-card';
 import { MqttSettingsCard } from './mqtt-settings-card';
 import { PumpScheduleCard } from './pump-schedule-card';
-
-const SettingsDebug = () => {
-  const settings = useContext(SettingsContext); // Access all settings
-
-  return (
-    <pre>
-      {JSON.stringify(settings, null, 2)}
-    </pre>
-  );
-};
+import { SettingsDebugCard } from './settings-debug-card';
 
 export function GreenhouseSettingsApp() {
   const [globalSettings, setSettings] = createSettings();
@@ -110,6 +101,9 @@ export function GreenhouseSettingsApp() {
                 onScheduleTidyChange={setIsScheduleTidied} // Pass tidiness callback
               />
             </Tab>
+            <Tab eventKey="debug" title="Debug">
+              <SettingsDebugCard />
+            </Tab>
           </Tabs>
           {/*  Bottom action bar  */}
           <div className="bg-dark text-white p-3 text-center">
@@ -136,7 +130,6 @@ export function GreenhouseSettingsApp() {
             </Button>
           </div>
         </div>
-        <SettingsDebug />
       </SettingsContext.Provider>
       {/* Tidy Schedule Dialog */}
       <Modal show={showTidyDialog} onHide={handleTidyDialogClose}>
