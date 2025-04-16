@@ -13,6 +13,10 @@ interface PumpScheduleCardProps {
 export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpScheduleCardProps) {
   const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
+  const hmsToSeconds = (time: TriggerTime) => {
+    return time.hour * 3600 + time.minute * 60 + time.second;
+  };
+
   const handleUtcOffsetChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     const newUtcOffset = parseInt(event.currentTarget.value, 10) || 0;
     setPumpSchedule({ ...pumpSchedule, utcOffset: newUtcOffset });
@@ -37,12 +41,28 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
       timeField === 'hour' ? clamp(value, 0, 23) : clamp(value, 0, 59);
     const updatedPump = [...pumpSchedule.pump];
     updatedPump[index][field][timeField] = clampedValue;
+
+    if (field === 'start') {
+      // Ensure end time is always after start time.
+      const startSeconds = hmsToSeconds(updatedPump[index].start);
+      const endSeconds = hmsToSeconds(updatedPump[index].end);
+
+      if (endSeconds <= startSeconds) {
+        const newEndSeconds = startSeconds + 60;
+        updatedPump[index].end = {
+          hour: Math.floor(newEndSeconds / 3600),
+          minute: Math.floor((newEndSeconds % 3600) / 60),
+          second: newEndSeconds % 60,
+        };
+      }
+    }
+
     setPumpSchedule({ ...pumpSchedule, pump: updatedPump });
   };
 
   const calculateDuration = (start: TriggerTime, end: TriggerTime) => {
-    const startSeconds = start.hour * 3600 + start.minute * 60 + start.second;
-    const endSeconds = end.hour * 3600 + end.minute * 60 + end.second;
+    const startSeconds = hmsToSeconds(start);
+    const endSeconds = hmsToSeconds(end);
     const durationSeconds = endSeconds - startSeconds;
 
     const minutes = Math.floor(Math.abs(durationSeconds) / 60);
@@ -63,14 +83,14 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
     let updatedPump = pumpSchedule.pump
       .filter((pumping) => {
         // Remove rows with all zeroes
-        const isStartZero = pumping.start.hour === 0 && pumping.start.minute === 0 && pumping.start.second === 0;
-        const isEndZero = pumping.end.hour === 0 && pumping.end.minute === 0 && pumping.end.second === 0;
+        const isStartZero = hmsToSeconds(pumping.start) === 0;
+        const isEndZero = hmsToSeconds(pumping.end) === 0;
         return !(isStartZero && isEndZero);
       })
       .map((pumping) => {
         // Fix bad durations by setting end time to 1 minute after start
-        const startSeconds = pumping.start.hour * 3600 + pumping.start.minute * 60 + pumping.start.second;
-        const endSeconds = pumping.end.hour * 3600 + pumping.end.minute * 60 + pumping.end.second;
+        const startSeconds = hmsToSeconds(pumping.start);
+        const endSeconds = hmsToSeconds(pumping.end);
         if (endSeconds <= startSeconds || endSeconds - startSeconds > BAD_DURATION_SECONDS) {
           const newEndSeconds = startSeconds + 60;
           return {
@@ -86,22 +106,16 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
       })
       .sort((a, b) => {
         // Order by start time ascending
-        const aStartSeconds = a.start.hour * 3600 + a.start.minute * 60 + a.start.second;
-        const bStartSeconds = b.start.hour * 3600 + b.start.minute * 60 + b.start.second;
+        const aStartSeconds = hmsToSeconds(a.start);
+        const bStartSeconds = hmsToSeconds(b.start);
         return aStartSeconds - bStartSeconds;
       });
 
     // Remove overlapping durations
     updatedPump = updatedPump.filter((pumping, index, array) => {
       if (index === 0) return true;
-      const prevEndSeconds =
-        array[index - 1].end.hour * 3600 +
-        array[index - 1].end.minute * 60 +
-        array[index - 1].end.second;
-      const currentStartSeconds =
-        pumping.start.hour * 3600 +
-        pumping.start.minute * 60 +
-        pumping.start.second;
+      const prevEndSeconds = hmsToSeconds(array[index - 1].end);
+      const currentStartSeconds = hmsToSeconds(pumping.start);
       return currentStartSeconds >= prevEndSeconds;
     });
 
@@ -208,7 +222,7 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
                     </td>
                     <td>
                       <Button variant="danger" onClick={() => handleRemoveRow(index)}>
-                        &#x02716;
+                        <span className="bwfont">&#x02716;</span>
                       </Button>
                     </td>
                   </tr>

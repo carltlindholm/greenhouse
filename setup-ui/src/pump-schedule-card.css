@@ -6,3 +6,8 @@
 .header-time-start {
   text-align: right;
 }
+
+.bwfont {
+  font-family: sans-serif;
+  color: white;
+}
