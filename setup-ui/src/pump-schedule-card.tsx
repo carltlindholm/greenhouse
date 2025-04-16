@@ -1,6 +1,7 @@
 import './pump-schedule-card.css';
 import { Card, Form, Button, Table } from 'react-bootstrap';
 import { PumpSchedule, ScheduledPumping, TriggerTime } from './settings-context';
+import { useEffect, useState } from 'react';
 
 const BAD_DURATION_SECONDS = 1200; // 20 minutes
 const WARNING_DURATION_SECONDS = 300; // 5 minutes
@@ -8,13 +9,24 @@ const WARNING_DURATION_SECONDS = 300; // 5 minutes
 interface PumpScheduleCardProps {
   pumpSchedule: PumpSchedule;
   setPumpSchedule: (pumpSchedule: PumpSchedule) => void;
+  onScheduleTidyChange?: (isTidied: boolean) => void; // New optional prop
 }
 
-export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpScheduleCardProps) {
+export function PumpScheduleCard({ pumpSchedule, setPumpSchedule, onScheduleTidyChange }: PumpScheduleCardProps) {
+  const [tidiedSchedule, setTidiedSchedule] = useState<PumpSchedule>(pumpSchedule);
+
   const clamp = (value: number, min: number, max: number) => Math.min(Math.max(value, min), max);
 
   const hmsToSeconds = (time: TriggerTime) => {
     return time.hour * 3600 + time.minute * 60 + time.second;
+  };
+
+  const secondsToHms = (seconds: number): TriggerTime => {
+    return {
+      hour: Math.floor(seconds / 3600),
+      minute: Math.floor((seconds % 3600) / 60),
+      second: seconds % 60,
+    };
   };
 
   const handleUtcOffsetChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -49,11 +61,7 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
 
       if (endSeconds <= startSeconds) {
         const newEndSeconds = startSeconds + 60;
-        updatedPump[index].end = {
-          hour: Math.floor(newEndSeconds / 3600),
-          minute: Math.floor((newEndSeconds % 3600) / 60),
-          second: newEndSeconds % 60,
-        };
+        updatedPump[index].end = secondsToHms(newEndSeconds);
       }
     }
 
@@ -79,8 +87,8 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
     return { formattedDuration, durationClass };
   };
 
-  const handleTidyUp = () => {
-    let updatedPump = pumpSchedule.pump
+  const tidySchedule = (schedule: PumpSchedule): PumpSchedule => {
+    let updatedPump = schedule.pump
       .filter((pumping) => {
         // Remove rows with all zeroes
         const isStartZero = hmsToSeconds(pumping.start) === 0;
@@ -95,11 +103,7 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
           const newEndSeconds = startSeconds + 60;
           return {
             ...pumping,
-            end: {
-              hour: Math.floor(newEndSeconds / 3600),
-              minute: Math.floor((newEndSeconds % 3600) / 60),
-              second: newEndSeconds % 60,
-            },
+            end: secondsToHms(newEndSeconds),
           };
         }
         return pumping;
@@ -119,7 +123,26 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
       return currentStartSeconds >= prevEndSeconds;
     });
 
-    setPumpSchedule({ ...pumpSchedule, pump: updatedPump });
+    return { ...schedule, pump: updatedPump };
+  };
+
+  useEffect(() => {
+    const handler = setTimeout(() => {
+      setTidiedSchedule(tidySchedule(pumpSchedule));
+    }, 200); // Debounce delay
+    return () => clearTimeout(handler);
+  }, [pumpSchedule]);
+
+  const isScheduleTidied = JSON.stringify(pumpSchedule) === JSON.stringify(tidiedSchedule);
+
+  useEffect(() => {
+    if (onScheduleTidyChange) {
+      onScheduleTidyChange(isScheduleTidied); // Notify parent of tidiness
+    }
+  }, [isScheduleTidied, onScheduleTidyChange]);
+
+  const applyTidiedSchedule = () => {
+    setPumpSchedule(tidiedSchedule);
   };
 
   return (
@@ -233,7 +256,12 @@ export function PumpScheduleCard({ pumpSchedule, setPumpSchedule }: PumpSchedule
           <Button variant="primary" className="mx-2" onClick={handleAddRow}>
             Add Row
           </Button>
-          <Button variant="secondary" className="mx-2" onClick={handleTidyUp}>
+          <Button
+            variant="secondary"
+            className="mx-2"
+            onClick={applyTidiedSchedule}
+            disabled={isScheduleTidied}
+          >
             Tidy Up
           </Button>
         </Card.Body>

@@ -1,5 +1,5 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { Tab, Tabs, Button } from 'react-bootstrap';
+import { Tab, Tabs, Button, Modal } from 'react-bootstrap';
 import { SettingsContext, createSettings } from './settings-context';
 import { useContext, useEffect, useState } from 'preact/hooks';
 import { WifiSettings } from './wifi-settings-card';
@@ -21,6 +21,8 @@ export function GreenhouseSettingsApp() {
   const [globalSettings, setSettings] = createSettings();
   const [hasEdits, setHasEdits] = useState(false);
   const [loadedStateJson, setLoadedStateJson] = useState('');
+  const [isScheduleTidied, setIsScheduleTidied] = useState(true); // Track tidiness
+  const [showTidyDialog, setShowTidyDialog] = useState(false); // Track dialog visibility
 
   useEffect(() => {
     loadSettings();  // Initial data load
@@ -50,7 +52,11 @@ export function GreenhouseSettingsApp() {
   };
 
   const saveSettings = async () => {
-    const newData = JSON.stringify(globalSettings) 
+    if (!isScheduleTidied) {
+      setShowTidyDialog(true); // Show dialog if schedule is not tidied
+      return;
+    }
+    const newData = JSON.stringify(globalSettings);
     const response = await fetch('/api/save-settings', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -72,6 +78,8 @@ export function GreenhouseSettingsApp() {
       alert('Failed to restart. Please try again.');
     }
   };
+
+  const handleTidyDialogClose = () => setShowTidyDialog(false);
 
   return (
     <>
@@ -99,6 +107,7 @@ export function GreenhouseSettingsApp() {
               <PumpScheduleCard
                 pumpSchedule={globalSettings.pumpSchedule}
                 setPumpSchedule={globalSettings.setPumpSchedule}
+                onScheduleTidyChange={setIsScheduleTidied} // Pass tidiness callback
               />
             </Tab>
           </Tabs>
@@ -129,6 +138,20 @@ export function GreenhouseSettingsApp() {
         </div>
         <SettingsDebug />
       </SettingsContext.Provider>
+      {/* Tidy Schedule Dialog */}
+      <Modal show={showTidyDialog} onHide={handleTidyDialogClose}>
+        <Modal.Header closeButton>
+          <Modal.Title>Messy Pump Schedule &#x1F62E;</Modal.Title>
+        </Modal.Header>
+        <Modal.Body>
+          Please fix issues with the pump schedule before saving. Tip: Press "Tidy Up"
+        </Modal.Body>
+        <Modal.Footer>
+          <Button variant="secondary" onClick={handleTidyDialogClose}>
+            Close
+          </Button>
+        </Modal.Footer>
+      </Modal>
     </>
   );
 }
