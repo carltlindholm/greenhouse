@@ -1,5 +1,5 @@
 import 'bootstrap/dist/css/bootstrap.min.css';
-import { Tab, Tabs, Button, Modal } from 'react-bootstrap';
+import { Tab, Tabs, Button, Modal, Toast } from 'react-bootstrap';
 import { SettingsContext, createSettings } from './settings-context';
 import { useEffect, useState } from 'preact/hooks';
 import { WifiSettings } from './wifi-settings-card';
@@ -14,6 +14,8 @@ export function GreenhouseSettingsApp() {
   const [loadedStateJson, setLoadedStateJson] = useState('');
   const [isScheduleTidied, setIsScheduleTidied] = useState(true); // Track tidiness
   const [showTidyDialog, setShowTidyDialog] = useState(false); // Track dialog visibility
+  const [showToast, setShowToast] = useState(false); // Track toaster visibility
+  const [wifiPasswordsMatch, setWifiPasswordsMatch] = useState(true); // Track WiFi password match
 
   useEffect(() => {
     loadSettings();  // Initial data load
@@ -58,6 +60,7 @@ export function GreenhouseSettingsApp() {
     } else {
       setLoadedStateJson(newData);
       setHasEdits(false); // Reset edit state
+      setShowToast(true); // Show success toaster
     }
   };
 
@@ -84,7 +87,7 @@ export function GreenhouseSettingsApp() {
             {/* Settings categories tabs */}
             <Tabs defaultActiveKey="wifi">
               <Tab eventKey="wifi" title="Wifi">
-                <WifiSettings />
+                <WifiSettings onPasswordsMatchChange={setWifiPasswordsMatch} />
               </Tab>
               <Tab eventKey="ntp" title="NTP">
                 <NtpSettings />
@@ -112,7 +115,7 @@ export function GreenhouseSettingsApp() {
             <Button
               className="mx-2"
               onClick={saveSettings}
-              disabled={!hasEdits}
+              disabled={!hasEdits || !wifiPasswordsMatch}
             >
               Save
             </Button>
@@ -147,6 +150,23 @@ export function GreenhouseSettingsApp() {
           </Button>
         </Modal.Footer>
       </Modal>
+      <Toast
+        onClose={() => setShowToast(false)}
+        show={showToast}
+        delay={3000}
+        autohide
+        className='bg-info' 
+        style={{
+          position: 'fixed',
+          top: '50px',
+          left: '20px',
+          zIndex: 1050,
+        }}
+      >
+        <Toast.Header>
+          <strong className="me-auto">Save successful!</strong>
+        </Toast.Header>
+      </Toast>
     </>
   );
 }
