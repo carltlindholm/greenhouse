@@ -77,34 +77,36 @@ export function GreenhouseSettingsApp() {
       <SettingsContext.Provider value={globalSettings}>
         <div className="d-flex flex-column" style={{ width: '100vw' }}>
           {/* Title */}
-          <div className="bg-primary text-white p-3 text-left">
+          <div className="text-white p-3 text-left" style={{ backgroundColor: '#207b20' }}>
             <h1>&#x1f345; Greenhouse</h1>
           </div>
-          {/* Settings categories tabs */}
-          <Tabs defaultActiveKey="wifi">
-            <Tab eventKey="wifi" title="Wifi">
-              <WifiSettings />
-            </Tab>
-            <Tab eventKey="ntp" title="NTP">
-              <NtpSettings />
-            </Tab>
-            <Tab eventKey="mqtt" title="MQTT">
-              <MqttSettingsCard
-                mqtt={globalSettings.mqtt}
-                setMqtt={globalSettings.setMqtt}
-              />
-            </Tab>
-            <Tab eventKey="pump-schedule" title="Pump Schedule">
-              <PumpScheduleCard
-                pumpSchedule={globalSettings.pumpSchedule}
-                setPumpSchedule={globalSettings.setPumpSchedule}
-                onScheduleTidyChange={setIsScheduleTidied} // Pass tidiness callback
-              />
-            </Tab>
+          <div style={{ minHeight: '600px' }}>
+            {/* Settings categories tabs */}
+            <Tabs defaultActiveKey="wifi">
+              <Tab eventKey="wifi" title="Wifi">
+                <WifiSettings />
+              </Tab>
+              <Tab eventKey="ntp" title="NTP">
+                <NtpSettings />
+              </Tab>
+              <Tab eventKey="mqtt" title="MQTT">
+                <MqttSettingsCard
+                  mqtt={globalSettings.mqtt}
+                  setMqtt={globalSettings.setMqtt}
+                />
+              </Tab>
+              <Tab eventKey="pump-schedule" title="Pump Schedule">
+                <PumpScheduleCard
+                  pumpSchedule={globalSettings.pumpSchedule}
+                  setPumpSchedule={globalSettings.setPumpSchedule}
+                  onScheduleTidyChange={setIsScheduleTidied} // Pass tidiness callback
+                />
+              </Tab>
             <Tab eventKey="debug" title="Debug">
               <SettingsDebugCard />
-            </Tab>
-          </Tabs>
+              </Tab>
+            </Tabs>
+          </div>
           {/*  Bottom action bar  */}
           <div className="bg-dark text-white p-3 text-center">
             <Button
