@@ -16,6 +16,7 @@ export function GreenhouseSettingsApp() {
   const [showTidyDialog, setShowTidyDialog] = useState(false); // Track dialog visibility
   const [showToast, setShowToast] = useState(false); // Track toaster visibility
   const [wifiPasswordsMatch, setWifiPasswordsMatch] = useState(true); // Track WiFi password match
+  const [mqttPasswordsMatch, setMqttPasswordsMatch] = useState(true); // Track MQTT password match
 
   useEffect(() => {
     loadSettings();  // Initial data load
@@ -83,7 +84,7 @@ export function GreenhouseSettingsApp() {
           <div className="text-white p-3 text-left" style={{ backgroundColor: '#207b20' }}>
             <h1>&#x1f345; Greenhouse</h1>
           </div>
-          <div style={{ minHeight: '600px' }}>
+          <div style={{ minHeight: '704px' }}>
             {/* Settings categories tabs */}
             <Tabs defaultActiveKey="wifi">
               <Tab eventKey="wifi" title="Wifi">
@@ -96,6 +97,7 @@ export function GreenhouseSettingsApp() {
                 <MqttSettingsCard
                   mqtt={globalSettings.mqtt}
                   setMqtt={globalSettings.setMqtt}
+                  onPasswordsMatchChange={setMqttPasswordsMatch}
                 />
               </Tab>
               <Tab eventKey="pump-schedule" title="Pump Schedule">
@@ -115,7 +117,7 @@ export function GreenhouseSettingsApp() {
             <Button
               className="mx-2"
               onClick={saveSettings}
-              disabled={!hasEdits || !wifiPasswordsMatch}
+              disabled={!hasEdits || !wifiPasswordsMatch || !mqttPasswordsMatch}
             >
               Save
             </Button>
@@ -155,17 +157,19 @@ export function GreenhouseSettingsApp() {
         show={showToast}
         delay={3000}
         autohide
-        className='bg-info' 
         style={{
           position: 'fixed',
-          top: '50px',
-          left: '20px',
+          top: '4px',
+          right: '10px',
           zIndex: 1050,
         }}
       >
         <Toast.Header>
-          <strong className="me-auto">Save successful!</strong>
+          <strong className="me-auto">Save</strong>
         </Toast.Header>
+        <Toast.Body>
+          Settings saved successfully!
+        </Toast.Body>
       </Toast>
     </>
   );

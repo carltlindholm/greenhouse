@@ -1,8 +1,16 @@
 import { Card, Form } from 'react-bootstrap';
+import { VerifiedPasswordControl } from './verified-password-control';
 import { MqttSettings } from './settings-context';
 
-export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqtt: (mqtt: MqttSettings) => void }) {
-
+export function MqttSettingsCard({
+  mqtt,
+  setMqtt,
+  onPasswordsMatchChange, // New prop for password match callback
+}: {
+  mqtt: MqttSettings;
+  setMqtt: (mqtt: MqttSettings) => void;
+  onPasswordsMatchChange: (passwordsMatch: boolean) => void; // New prop
+}) {
   const handleBrokerChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setMqtt({
       ...mqtt,
@@ -24,11 +32,16 @@ export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqt
     });
   };
 
-  const handlePasswordChange = (event: React.ChangeEvent<HTMLInputElement>) => {
-    setMqtt({
-      ...mqtt,
-      password: event.currentTarget.value,
-    });
+  const handlePasswordChange = (newPassword: string, passwordsMatch : boolean) => {
+    if (passwordsMatch) {
+      setMqtt({
+        ...mqtt,
+        password: newPassword,
+      });
+    }
+    if (onPasswordsMatchChange) {
+      onPasswordsMatchChange(passwordsMatch);
+    }
   };
 
   const handleTopicChange = (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -80,15 +93,10 @@ export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqt
                 onChange={handleUserChange}
               />
             </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Password</Form.Label>
-              <Form.Control
-                type="password"
-                placeholder="Password"
-                value={mqtt.password}
-                onChange={handlePasswordChange}
-              />
-            </Form.Group>
+            <VerifiedPasswordControl
+              password={mqtt.password}
+              onPasswordChange={handlePasswordChange}
+            />
             <Form.Group className="mb-3">
               <Form.Label>Device ID</Form.Label>
               <Form.Control
@@ -99,7 +107,7 @@ export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqt
               />
             </Form.Group>
             <Form.Group className="mb-3">
-              <Form.Label>Topic</Form.Label>              
+              <Form.Label>Topic</Form.Label>
               <Form.Control
                 type="text"
                 placeholder="Topic"
@@ -115,4 +123,5 @@ export function MqttSettingsCard({ mqtt, setMqtt }: { mqtt: MqttSettings; setMqt
       </Card>
     </>
   );
-};
+}
+

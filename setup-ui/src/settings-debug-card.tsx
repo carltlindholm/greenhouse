@@ -44,7 +44,7 @@ export function SettingsDebugCard() {
       </button>
       <pre
         style={{
-          maxHeight: '542px',
+          maxHeight: '646px',
           whiteSpace: 'pre-wrap',
         }}
       >

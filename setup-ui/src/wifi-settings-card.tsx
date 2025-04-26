@@ -1,27 +1,10 @@
 import { Card, Form } from 'react-bootstrap';
 import { SettingsContext } from './settings-context';
-import { useContext, useState, useEffect } from 'preact/hooks';
+import { useContext } from 'preact/hooks';
+import { VerifiedPasswordControl } from './verified-password-control';
 
 export function WifiSettings({ onPasswordsMatchChange }: { onPasswordsMatchChange?: (match: boolean) => void }) {
   const { wifi, setWifi } = useContext(SettingsContext)!;
-  const [password, setPassword] = useState(wifi.password || '');
-  const [passwordAgain, setPasswordAgain] = useState('');
-  const passWordsMatch = password === passwordAgain;
-
-  useEffect(() => {
-    if (onPasswordsMatchChange) {
-      onPasswordsMatchChange(passWordsMatch);
-    }
-  }, [passWordsMatch, onPasswordsMatchChange]);
-
-  useEffect(() => {
-    if (wifi.password !== password) {
-      setPassword(wifi.password || '');
-    }
-    if (wifi.password !== passwordAgain) {
-      setPasswordAgain(wifi.password || '');
-    }
-  }, [wifi.password]);
 
   const handleSsidChange = (event: React.ChangeEvent<HTMLInputElement>) => {
     setWifi({
@@ -30,18 +13,15 @@ export function WifiSettings({ onPasswordsMatchChange }: { onPasswordsMatchChang
     });
   };
 
-  const handlePasswordInputChange = (value: string, isPasswordAgain: boolean) => {
-    if (isPasswordAgain) {
-      setPasswordAgain(value);
-    } else {
-      setPassword(value);
-    }
-    const othervalue = isPasswordAgain ? password : passwordAgain;
-    if (value === othervalue) {
+  const handlePasswordChange = (newPassword: string, passwordsMatch: boolean) => {
+    if (passwordsMatch) {
       setWifi({
         ...wifi,
-        password: value,
+        password: newPassword,
       });
+    }
+    if (onPasswordsMatchChange) {
+      onPasswordsMatchChange(passwordsMatch);
     }
   };
 
@@ -55,28 +35,10 @@ export function WifiSettings({ onPasswordsMatchChange }: { onPasswordsMatchChang
               <Form.Label>SSID</Form.Label>
               <Form.Control type="text" placeholder="" value={wifi.ssid} onChange={handleSsidChange} />
             </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Password</Form.Label>
-              <Form.Control
-                type="password"
-                placeholder="Password"
-                value={password}
-                onChange={(e) => handlePasswordInputChange(e.currentTarget.value, false)}
-              />
-            </Form.Group>
-            <Form.Group className="mb-3">
-              <Form.Label>Password again</Form.Label>
-              <Form.Control
-                type="password"
-                placeholder="Password again"
-                value={passwordAgain}
-                onChange={(e) => handlePasswordInputChange(e.currentTarget.value, true)}
-                className={!passWordsMatch ? 'bg-warning' : ''}
-              />
-            </Form.Group>
+            <VerifiedPasswordControl password={wifi.password} onPasswordChange={handlePasswordChange} />
           </Form>
         </Card.Body>
       </Card>
     </>
   );
-};
+}
