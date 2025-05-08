@@ -22,11 +22,10 @@
 
 #define SETUP_MODE_PIN 23  // Pull low on startup to enter setup.
 
-// Successful MQTT is our watchdog keepalive signal. This also means
-// if our MQTT broker is down we'll reboot loop, so with that in mind the
-// watchdog timeout should be large enough that we'd still do something
-// reasonable in this case (1*plant watering at least).
-#define WATCHDOG_TIMEOUT_S (11 * 3600 + 3117)
+// Low enough that if we crash on pumping enabled it's not a disaster.
+// (Pump enable crash observed in the wild, probably spike from relay)
+#define WATCHDOG_TIMEOUT_S (314) 
+
 #define MQTT_KEEPALIVE_SEC 47
 #define MQTT_UPDATE_USEC 10000LL
 #define MQTT_DO_PUBLISH 1
@@ -213,7 +212,6 @@ int64_t UpdateMqtt(const Config::Mqtt &mqtt_config,
       mqtt_ok = false;
       return 5000;
     }
-    WatchdogImAlive();
     return MQTT_UPDATE_USEC;
   }
 
@@ -357,12 +355,32 @@ int64_t UpdateSerial(const SysTime &sys_time, ESP32Time *rtc) {
   return 5000L;
 }
 
+int64_t UpdateWatchdog(const StateFlags &state_flags) {
+  // Successful MQTT is our watchdog reset signal. This also means
+  // if our MQTT broker is down we'll reboot loop, so with that in mind the
+  // MQTT timeout should be large enough that we'd still do something
+  // reasonable in this case (1*plant watering at least).
+  constexpr uint32_t kMaxTimeSinceMqttAliveMs = (11 * 3600 + 3117) * 1000L;
+
+  static uint32_t mqtt_seen_alive_ms = -1L;
+  const uint32_t now = millis();
+  if (state_flags.mqtt_ok || mqtt_seen_alive_ms > now) {
+    mqtt_seen_alive_ms = now;
+  } else if (now - mqtt_seen_alive_ms < kMaxTimeSinceMqttAliveMs) {
+    WatchdogImAlive();
+  }
+  return 1000L;
+}
+
 static std::unique_ptr<Config> config(nullptr);
 
 void setup() {
   pinMode(PUMP_CONTROL, OUTPUT);
   pinMode(PUMP_CONTROL_2, OUTPUT);
-  pinMode(LED_GREEN, OUTPUT);
+  // Just in case we are in a bad state on boot, turn off pump.
+  digitalWrite(PUMP_CONTROL, LOW);
+  digitalWrite(PUMP_CONTROL_2, LOW);
+  
   pinMode(LED_RED, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
   pinMode(SETUP_MODE_PIN, INPUT_PULLUP);
@@ -404,6 +422,7 @@ void loop() {
     int64_t mqtt = 0;
     int64_t read_pressure = 0;
     int64_t pump_control = 0;
+    int64_t watchdog_update = 0;
   } next_calls_ms;
 
   static ESP32Time rtc;
@@ -441,7 +460,9 @@ void loop() {
 
   dispatch(next_calls_ms.serial,
            std::bind(UpdateSerial, std::cref(sys_time), &rtc));
-
+  dispatch(next_calls_ms.watchdog_update,
+            std::bind(UpdateWatchdog, std::cref(state_flags)));
+ 
   epoch_ms = rtc.getEpoch() * 1000L + rtc.getMillis();
   delay(
       std::max(MIN_SLEEP_MS, std::min(next_epoch_ms - epoch_ms, MAX_SLEEP_MS)));
