@@ -364,9 +364,15 @@ int64_t UpdateWatchdog(const StateFlags &state_flags) {
 
   static uint32_t mqtt_seen_alive_ms = -1L;
   const uint32_t now = millis();
-  if (state_flags.mqtt_ok || mqtt_seen_alive_ms > now) {
+  // Note: technically this means we can ignore a dead mqtt longer than
+  // the interval if we were just about to expire and then wrapped around
+  // in this case we can get up to 2 * kMaxTimeSinceMqttAliveMs
+  // before we reset the watchdog.
+  const bool millis_wrapped_around = mqtt_seen_alive_ms > now;
+  if (state_flags.mqtt_ok || millis_wrapped_around) {
     mqtt_seen_alive_ms = now;
-  } else if (now - mqtt_seen_alive_ms < kMaxTimeSinceMqttAliveMs) {
+  } 
+  if (now - mqtt_seen_alive_ms < kMaxTimeSinceMqttAliveMs) {
     WatchdogImAlive();
   }
   return 1000L;
