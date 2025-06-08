@@ -388,6 +388,7 @@ void setup() {
   digitalWrite(PUMP_CONTROL_2, LOW);
   
   pinMode(LED_RED, OUTPUT);
+  pinMode(LED_GREEN, OUTPUT);
   pinMode(LED_BLUE, OUTPUT);
   pinMode(SETUP_MODE_PIN, INPUT_PULLUP);
 
